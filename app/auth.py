@@ -103,3 +103,15 @@ def get_current_user_premium(
             detail="Fitur ini hanya untuk akun premium.",
         )
     return user
+
+
+def get_current_user_admin(
+    user: User = Depends(get_current_user),
+) -> User:
+    """User harus login dan role ADMIN."""
+    if user.role != "ADMIN":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hanya admin yang dapat mengakses.",
+        )
+    return user

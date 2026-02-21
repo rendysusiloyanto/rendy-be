@@ -3,7 +3,7 @@ from sqlalchemy import pool
 from alembic import context
 from app.database import Base
 from app.config import get_settings
-from app.models import User  # noqa: F401 - load models
+from app.models import User, ProxmoxNode  # noqa: F401 - load models
 
 config = context.config
 if config.config_file_name is not None:
