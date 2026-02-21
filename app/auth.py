@@ -85,6 +85,14 @@ def get_current_user(
     return user
 
 
+def get_user_from_token(token: str, db: Session) -> User | None:
+    """Untuk WebSocket: ambil user dari token string. Return None jika invalid."""
+    payload = decode_token(token)
+    if not payload:
+        return None
+    return db.query(User).filter(User.id == payload.sub).first()
+
+
 def get_current_user_premium(
     user: User = Depends(get_current_user),
 ) -> User:

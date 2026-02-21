@@ -1,9 +1,12 @@
 import subprocess
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import PlainTextResponse, Response
-from app.auth import get_current_user_premium
+from urllib.parse import parse_qs
+from fastapi import APIRouter, Depends, HTTPException, Request, status, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
+from app.auth import get_current_user_premium, get_user_from_token
+from app.database import get_db
 from app.models.user import User
 from app.openvpn import create_openvpn_client, read_openvpn_client, get_openvpn_status
+from app.openvpn.openvpn import sanitize_username
 
 router = APIRouter(prefix="/api/openvpn", tags=["openvpn"])
 
@@ -124,3 +127,73 @@ def get_config(user: User = Depends(get_current_user_premium)):
             "Content-Disposition": f'attachment; filename="{filename}"',
         },
     )
+
+
+@router.get("/traffic")
+def get_traffic(request: Request, user: User = Depends(get_current_user_premium)):
+    """
+    Traffic I/O terbaru untuk user (username = email). Hanya untuk akun premium.
+    Return null jika client belum terhubung ke VPN.
+    """
+    email = user.email
+    if not email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email tidak ditemukan.")
+    username = sanitize_username(email)
+    state = getattr(request.app.state, "openvpn_traffic", None) or {}
+    snapshot = state.get("traffic_snapshot", {})
+    data = snapshot.get(username)
+    if data is None:
+        return {"connected": False, "bytes_received": 0, "bytes_sent": 0}
+    return {
+        "connected": True,
+        "common_name": data.get("common_name"),
+        "virtual_ip": data.get("virtual_ip"),
+        "bytes_received": data.get("bytes_received", 0),
+        "bytes_sent": data.get("bytes_sent", 0),
+        "connected_since": data.get("connected_since"),
+    }
+
+
+@router.websocket("/traffic/ws")
+async def traffic_websocket(websocket: WebSocket):
+    """
+    WebSocket untuk realtime traffic. Query: token=JWT. Hanya premium.
+    Server mengirim update traffic (bytes_received, bytes_sent) setiap ~1 detik.
+    """
+    await websocket.accept()
+    query_string = websocket.scope.get("query_string", b"").decode()
+    params = parse_qs(query_string)
+    token_list = params.get("token", [])
+    token = token_list[0] if token_list else None
+
+    if not token:
+        await websocket.close(code=4001)
+        return
+
+    db = next(get_db())
+    try:
+        user = get_user_from_token(token, db)
+        if not user or not user.is_premium:
+            await websocket.close(code=4003)
+            return
+        username = sanitize_username(user.email)
+    finally:
+        db.close()
+
+    state = getattr(websocket.app.state, "openvpn_traffic", None)
+    if state is None:
+        await websocket.close(code=1011)
+        return
+    clients_list = state.get("traffic_ws_clients", [])
+    clients_list.append((websocket, username))
+
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        try:
+            clients_list.remove((websocket, username))
+        except ValueError:
+            pass
