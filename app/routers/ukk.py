@@ -1,8 +1,10 @@
 """
 UKK Test Service: nodes (admin) + WebSocket run test.
 TestRunner dijalankan dari app.ukk_runner (tanpa dependensi path luar).
+Client bisa kirim { "action": "cancel" } untuk membatalkan test.
 """
 import asyncio
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, Depends, HTTPException, WebSocket
 from sqlalchemy.orm import Session
@@ -124,11 +126,15 @@ async def ukk_test_websocket(websocket: WebSocket):
 
     queue = asyncio.Queue()
     loop = asyncio.get_event_loop()
+    cancel_event = threading.Event()
 
     def run_sync():
         try:
             runner = TestRunner(data, nodes)
             for r in runner.run():
+                if cancel_event.is_set():
+                    loop.call_soon_threadsafe(queue.put_nowait, ("_stop", "Test dibatalkan oleh user."))
+                    return
                 loop.call_soon_threadsafe(queue.put_nowait, r)
             loop.call_soon_threadsafe(queue.put_nowait, ("_stop", None))
         except TestStopException as e:
@@ -138,6 +144,18 @@ async def ukk_test_websocket(websocket: WebSocket):
 
     future = loop.run_in_executor(_executor, run_sync)
     stop_error = None
+
+    async def cancel_listener():
+        try:
+            while True:
+                msg = await asyncio.wait_for(websocket.receive_json(), timeout=3600)
+                if isinstance(msg, dict) and msg.get("action") == "cancel":
+                    cancel_event.set()
+                    break
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            pass
+
+    listener_task = asyncio.create_task(cancel_listener())
     try:
         while True:
             item = await queue.get()
@@ -154,6 +172,11 @@ async def ukk_test_websocket(websocket: WebSocket):
         except Exception:
             pass
     finally:
+        listener_task.cancel()
+        try:
+            await listener_task
+        except asyncio.CancelledError:
+            pass
         await future
 
     if stop_error:

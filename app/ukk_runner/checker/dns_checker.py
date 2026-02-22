@@ -9,12 +9,14 @@ class DNSChecker:
         try:
             ssh = self.vm_ssh_connection
             res = ssh.run("which named")
-            found = bool(res.get_output().strip())
+            out, err = res.get_output(), res.get_error()
+            found = bool(out.strip())
             return {
                 "step": "7.A Checking DNS Binary",
                 "status": found,
-                "path": res.get_output().strip() if found else None,
+                "path": out.strip() if found else None,
                 "message": None if found else "Bind9 binary not found",
+                "command_output": (out + "\n" + err).strip() or None,
             }
         except Exception as e:
             return {"step": "7.A Checking DNS Binary", "status": False, "message": str(e)}
@@ -24,10 +26,13 @@ class DNSChecker:
             ssh = self.vm_ssh_connection
             res = ssh.run("systemctl is-active bind9")
             active = res.get_output().strip() == "active"
+            status_res = ssh.run("systemctl status bind9 --no-pager", use_sudo=True)
+            system_output = (status_res.get_output() + "\n" + status_res.get_error()).strip()
             return {
                 "step": "7.B Checking DNS Service",
                 "status": active,
                 "message": None if active else "Bind9 service not running",
+                "system_output": system_output,
             }
         except Exception as e:
             return {"step": "7.B Checking DNS Service", "status": False, "message": str(e)}
@@ -36,7 +41,8 @@ class DNSChecker:
         try:
             ssh = self.vm_ssh_connection
             res = ssh.run(f"dig {domain} @localhost +short")
-            resolved_ip = res.get_output().strip()
+            out, err = res.get_output(), res.get_error()
+            resolved_ip = out.strip()
             correct = expected_ip in resolved_ip
             return {
                 "step": "7.C Checking Forward DNS",
@@ -45,6 +51,7 @@ class DNSChecker:
                 "expected_ip": expected_ip,
                 "actual_ip": resolved_ip,
                 "message": None if correct else "Forward DNS mismatch",
+                "command_output": (out + "\n" + err).strip() or None,
             }
         except Exception as e:
             return {"step": "7.C Checking Forward DNS", "status": False, "message": str(e)}
@@ -53,7 +60,8 @@ class DNSChecker:
         try:
             ssh = self.vm_ssh_connection
             res = ssh.run(f"dig -x {ip_address} @localhost +short")
-            resolved_domain = res.get_output().strip()
+            out, err = res.get_output(), res.get_error()
+            resolved_domain = out.strip()
             correct = expected_domain in resolved_domain
             return {
                 "step": "7.D Checking Reverse DNS",
@@ -62,6 +70,7 @@ class DNSChecker:
                 "expected_domain": expected_domain,
                 "actual_domain": resolved_domain,
                 "message": None if correct else "Reverse DNS mismatch",
+                "command_output": (out + "\n" + err).strip() or None,
             }
         except Exception as e:
             return {"step": "7.D Checking Reverse DNS", "status": False, "message": str(e)}

@@ -15,8 +15,14 @@ class MySQLChecker:
     def check_mysql_binary(self):
         try:
             res = self.vm_ssh_connection.run("which mysql")
-            found = bool(res.get_output().strip())
-            return {"step": "5.A", "status": found, "path": res.get_output().strip() if found else None, "message": None if found else "MySQL binary not found"}
+            out, err = res.get_output(), res.get_error()
+            found = bool(out.strip())
+            return {
+                "step": "5.A", "status": found,
+                "path": out.strip() if found else None,
+                "message": None if found else "MySQL binary not found",
+                "command_output": (out + "\n" + err).strip() or None,
+            }
         except Exception as e:
             return {"step": "5.A", "status": False, "path": None, "message": str(e)}
 
@@ -24,7 +30,13 @@ class MySQLChecker:
         try:
             res = self.vm_ssh_connection.run("systemctl is-active mysql")
             active = res.get_output().strip() == "active"
-            return {"step": "5.B", "status": active, "value": active, "message": None if active else "MySQL service not running"}
+            status_res = self.vm_ssh_connection.run("systemctl status mysql --no-pager", use_sudo=True)
+            system_output = (status_res.get_output() + "\n" + status_res.get_error()).strip()
+            return {
+                "step": "5.B", "status": active, "value": active,
+                "message": None if active else "MySQL service not running",
+                "system_output": system_output,
+            }
         except Exception as e:
             return {"step": "5.B", "status": False, "value": False, "message": str(e)}
 
@@ -32,8 +44,13 @@ class MySQLChecker:
         try:
             cmd = self._build_mysql_command(f"SHOW DATABASES LIKE '{db_name}';", mysql_user, mysql_password)
             res = self.vm_ssh_connection.run(cmd, use_sudo=(mysql_password is None))
-            exists = db_name in res.get_output()
-            return {"step": "5.C", "status": exists, "database": db_name, "message": None if exists else f"DB '{db_name}' not found"}
+            out, err = res.get_output(), res.get_error()
+            exists = db_name in out
+            return {
+                "step": "5.C", "status": exists, "database": db_name,
+                "message": None if exists else f"DB '{db_name}' not found",
+                "command_output": (out + "\n" + err).strip() or None,
+            }
         except Exception as e:
             return {"step": "5.C", "status": False, "database": db_name, "message": str(e)}
 
@@ -41,8 +58,13 @@ class MySQLChecker:
         try:
             cmd = self._build_mysql_command(f"SELECT User FROM mysql.user WHERE User = '{db_user}';", mysql_user, mysql_password)
             res = self.vm_ssh_connection.run(cmd, use_sudo=(mysql_password is None))
-            exists = db_user in res.get_output()
-            return {"step": "5.D", "status": exists, "db_user": db_user, "message": None if exists else f"User '{db_user}' not found"}
+            out, err = res.get_output(), res.get_error()
+            exists = db_user in out
+            return {
+                "step": "5.D", "status": exists, "db_user": db_user,
+                "message": None if exists else f"User '{db_user}' not found",
+                "command_output": (out + "\n" + err).strip() or None,
+            }
         except Exception as e:
             return {"step": "5.D", "status": False, "db_user": db_user, "message": str(e)}
 
@@ -50,7 +72,12 @@ class MySQLChecker:
         try:
             cmd = f'mysql -u {db_user} -p"{db_password}" -e "USE {db_name};"'
             res = self.vm_ssh_connection.run(cmd)
+            out, err = res.get_output(), res.get_error()
             success = res.get_status() == 0
-            return {"step": "5.E", "status": success, "message": None if success else res.get_error().strip()}
+            return {
+                "step": "5.E", "status": success,
+                "message": None if success else err.strip(),
+                "command_output": (out + "\n" + err).strip() or None,
+            }
         except Exception as e:
             return {"step": "5.E", "status": False, "message": str(e)}
