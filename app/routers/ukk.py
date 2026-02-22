@@ -11,8 +11,13 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user_admin, get_user_from_token
 from app.database import get_db
 from app.models.proxmox_node import ProxmoxNode
-from app.schemas.ukk import ProxmoxNodeCreate, ProxmoxNodeResponse
+from app.models.ukk_test_result import UKKTestResult
+from app.models.user import User
+from app.schemas.ukk import ProxmoxNodeCreate, ProxmoxNodeResponse, LeaderboardEntry
 from app.ukk_runner import TestRunner, TestStopException
+
+# Persentase minimal untuk dianggap "sukses" dan masuk leaderboard
+LEADERBOARD_MIN_PERCENTAGE = 70.0
 
 router = APIRouter(prefix="/api/ukk", tags=["ukk"])
 _executor = ThreadPoolExecutor(max_workers=2)
@@ -72,6 +77,37 @@ def delete_node(
     db.delete(node)
     db.commit()
     return {"message": "Node dihapus"}
+
+
+# ---------- Leaderboard ----------
+
+@router.get("/leaderboard", response_model=list[LeaderboardEntry])
+def get_leaderboard(db: Session = Depends(get_db)):
+    """
+    Daftar leaderboard: user yang berhasil menyelesaikan test (persentase >= 70%)
+    diurutkan berdasarkan siapa selesai duluan (completed_at ASC).
+    Satu entry per user (penyelesaian pertama).
+    """
+    results = (
+        db.query(UKKTestResult, User)
+        .join(User, UKKTestResult.user_id == User.id)
+        .order_by(UKKTestResult.completed_at.asc())
+        .all()
+    )
+    return [
+        LeaderboardEntry(
+            rank=idx + 1,
+            user_id=u.id,
+            full_name=u.full_name or u.email,
+            email=u.email,
+            total_score=r.total_score,
+            max_score=r.max_score,
+            percentage=round(r.percentage, 2),
+            grade=r.grade,
+            completed_at=r.completed_at.isoformat(),
+        )
+        for idx, (r, u) in enumerate(results)
+    ]
 
 
 # ---------- WebSocket Run Test ----------
@@ -155,6 +191,27 @@ async def ukk_test_websocket(websocket: WebSocket):
         except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
             pass
 
+    def save_leaderboard_if_success(summary: dict) -> None:
+        if not summary or summary.get("percentage") is None:
+            return
+        if float(summary["percentage"]) < LEADERBOARD_MIN_PERCENTAGE:
+            return
+        db = next(get_db())
+        try:
+            existing = db.query(UKKTestResult).filter(UKKTestResult.user_id == user.id).first()
+            if not existing:
+                rec = UKKTestResult(
+                    user_id=user.id,
+                    total_score=int(summary.get("total", 0)),
+                    max_score=int(summary.get("max", 0)),
+                    percentage=float(summary["percentage"]),
+                    grade=str(summary.get("grade", "")),
+                )
+                db.add(rec)
+                db.commit()
+        finally:
+            db.close()
+
     listener_task = asyncio.create_task(cancel_listener())
     try:
         while True:
@@ -164,6 +221,10 @@ async def ukk_test_websocket(websocket: WebSocket):
                 break
             try:
                 await websocket.send_json(item)
+                if isinstance(item, dict) and item.get("event") == "finished":
+                    summary = item.get("summary")
+                    if isinstance(summary, dict):
+                        save_leaderboard_if_success(summary)
             except Exception:
                 break
     except Exception as e:
