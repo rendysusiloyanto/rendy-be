@@ -14,5 +14,6 @@ class Learning(Base):
     content = Column(Text, nullable=True)
     video_url = Column(String(512), nullable=True)
     is_published = Column(Boolean, nullable=False, default=False)
+    is_premium = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

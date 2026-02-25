@@ -1,40 +1,44 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from app.auth import get_current_user, get_current_user_admin, BLACKLIST_MESSAGE
 from app.database import get_db
 from app.models.learning import Learning
-from app.schemas.learning import LearningCreate, LearningUpdate, LearningResponse
+from app.schemas.learning import LearningCreate, LearningUpdate, LearningListResponse, LearningResponse
 
 router = APIRouter(prefix="/api/learning", tags=["learning"])
 
 # Blacklisted boleh lihat list (thumbnail + title). Buka detail (video, deskripsi lengkap) diblokir.
 
 
-@router.get("", response_model=list[LearningResponse])
+@router.get("")
 def list_learnings(
     published_only: bool = True,
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    user=Depends(get_current_user),
 ):
-    """Daftar learning (harus login). Blacklisted tetap bisa lihat list (thumbnail + title)."""
+    """Daftar learning. Field video_url tidak dikirim sama sekali jika user non-premium."""
     q = db.query(Learning).order_by(Learning.created_at.desc())
     if published_only:
         q = q.filter(Learning.is_published == True)
     items = q.all()
-    return [
-        LearningResponse(
-            id=x.id,
-            title=x.title,
-            description=x.description,
-            thumbnail=x.thumbnail,
-            content=x.content,
-            video_url=x.video_url,
-            is_published=x.is_published,
-            created_at=x.created_at.isoformat(),
-            updated_at=x.updated_at.isoformat(),
-        )
-        for x in items
-    ]
+    show_video = user.is_premium
+    body = []
+    for x in items:
+        d = {
+            "id": x.id,
+            "title": x.title,
+            "description": x.description,
+            "thumbnail": x.thumbnail,
+            "is_published": x.is_published,
+            "is_premium": x.is_premium,
+            "created_at": x.created_at.isoformat(),
+            "updated_at": x.updated_at.isoformat(),
+        }
+        if show_video:
+            d["video_url"] = x.video_url
+        body.append(d)
+    return JSONResponse(content=body)
 
 
 @router.get("/admin", response_model=list[LearningResponse])
@@ -53,6 +57,7 @@ def admin_list_learnings(
             content=x.content,
             video_url=x.video_url,
             is_published=x.is_published,
+            is_premium=x.is_premium,
             created_at=x.created_at.isoformat(),
             updated_at=x.updated_at.isoformat(),
         )
@@ -60,29 +65,33 @@ def admin_list_learnings(
     ]
 
 
-@router.get("/{learning_id}", response_model=LearningResponse)
+@router.get("/{learning_id}")
 def get_learning(
     learning_id: str,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    """Detail learning (harus login). User blacklisted tidak bisa buka detail (hanya bisa lihat list)."""
+    """Detail learning. Field video_url tidak dikirim sama sekali jika user non-premium."""
     if user.is_blacklisted:
         raise HTTPException(status_code=403, detail=BLACKLIST_MESSAGE)
     item = db.query(Learning).filter(Learning.id == learning_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Learning tidak ditemukan")
-    return LearningResponse(
-        id=item.id,
-        title=item.title,
-        description=item.description,
-        thumbnail=item.thumbnail,
-        content=item.content,
-        video_url=item.video_url,
-        is_published=item.is_published,
-        created_at=item.created_at.isoformat(),
-        updated_at=item.updated_at.isoformat(),
-    )
+    show_video = user.is_premium
+    d = {
+        "id": item.id,
+        "title": item.title,
+        "description": item.description,
+        "thumbnail": item.thumbnail,
+        "content": item.content,
+        "is_published": item.is_published,
+        "is_premium": item.is_premium,
+        "created_at": item.created_at.isoformat(),
+        "updated_at": item.updated_at.isoformat(),
+    }
+    if show_video:
+        d["video_url"] = item.video_url
+    return JSONResponse(content=d)
 
 
 @router.post("", response_model=LearningResponse)
@@ -98,6 +107,7 @@ def create_learning(
         content=body.content,
         video_url=body.video_url,
         is_published=body.is_published,
+        is_premium=body.is_premium,
     )
     db.add(item)
     db.commit()
@@ -110,6 +120,7 @@ def create_learning(
         content=item.content,
         video_url=item.video_url,
         is_published=item.is_published,
+        is_premium=item.is_premium,
         created_at=item.created_at.isoformat(),
         updated_at=item.updated_at.isoformat(),
     )
@@ -137,6 +148,8 @@ def update_learning(
         item.video_url = body.video_url
     if body.is_published is not None:
         item.is_published = body.is_published
+    if body.is_premium is not None:
+        item.is_premium = body.is_premium
     db.commit()
     db.refresh(item)
     return LearningResponse(
@@ -147,6 +160,7 @@ def update_learning(
         content=item.content,
         video_url=item.video_url,
         is_published=item.is_published,
+        is_premium=item.is_premium,
         created_at=item.created_at.isoformat(),
         updated_at=item.updated_at.isoformat(),
     )

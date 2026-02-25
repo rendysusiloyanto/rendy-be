@@ -8,6 +8,7 @@ class LearningCreate(BaseModel):
     content: str | None = None
     video_url: str | None = None
     is_published: bool = False
+    is_premium: bool = False
 
 
 class LearningUpdate(BaseModel):
@@ -17,6 +18,38 @@ class LearningUpdate(BaseModel):
     content: str | None = None
     video_url: str | None = None
     is_published: bool | None = None
+    is_premium: bool | None = None
+
+
+class LearningListResponse(BaseModel):
+    """Response untuk list learning (tanpa is_published dan content). Frontend: video_url hanya ada jika user premium."""
+    id: str
+    title: str
+    description: str | None
+    thumbnail: str | None
+    video_url: str | None = None
+    is_premium: bool
+    created_at: str
+    updated_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class LearningDetailResponse(BaseModel):
+    """Response detail untuk user (tanpa is_published). video_url hanya ada jika user premium."""
+    id: str
+    title: str
+    description: str | None
+    thumbnail: str | None
+    content: str | None
+    video_url: str | None = None
+    is_premium: bool
+    created_at: str
+    updated_at: str
+
+    class Config:
+        from_attributes = True
 
 
 class LearningResponse(BaseModel):
@@ -27,6 +60,7 @@ class LearningResponse(BaseModel):
     content: str | None
     video_url: str | None
     is_published: bool
+    is_premium: bool
     created_at: str
     updated_at: str
 

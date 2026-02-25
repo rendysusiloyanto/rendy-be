@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Support/QRIS: path absolut ke folder upload (kosong = pakai relative ke backend)
     support_upload_dir: str = ""
 
+    # Premium request: path folder upload bukti transfer (kosong = backend/uploads/premium)
+    premium_upload_dir: str = ""
+
     class Config:
         env_file = ".env"
 
