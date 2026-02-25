@@ -42,13 +42,16 @@ class MySQLChecker:
 
     def check_database_exists(self, db_name, mysql_user="root", mysql_password=None):
         try:
+            if not (db_name and str(db_name).strip()):
+                return {"step": "5.C", "status": False, "database": db_name or "", "message": "DB name kosong"}
             cmd = self._build_mysql_command(f"SHOW DATABASES LIKE '{db_name}';", mysql_user, mysql_password)
             res = self.vm_ssh_connection.run(cmd, use_sudo=(mysql_password is None))
             out, err = res.get_output(), res.get_error()
-            exists = db_name in out
+            cmd_ok = res.get_status() == 0 and "command not found" not in (err or "").lower()
+            exists = cmd_ok and db_name in out
             return {
                 "step": "5.C", "status": exists, "database": db_name,
-                "message": None if exists else f"DB '{db_name}' not found",
+                "message": None if exists else (err.strip() or f"DB '{db_name}' not found"),
                 "command_output": (out + "\n" + err).strip() or None,
             }
         except Exception as e:
@@ -56,13 +59,16 @@ class MySQLChecker:
 
     def check_database_user_exists(self, db_user, mysql_user="root", mysql_password=None):
         try:
+            if not (db_user is not None and str(db_user).strip()):
+                return {"step": "5.D", "status": False, "db_user": db_user or "", "message": "DB user kosong", "command_output": None}
             cmd = self._build_mysql_command(f"SELECT User FROM mysql.user WHERE User = '{db_user}';", mysql_user, mysql_password)
             res = self.vm_ssh_connection.run(cmd, use_sudo=(mysql_password is None))
             out, err = res.get_output(), res.get_error()
-            exists = db_user in out
+            cmd_ok = res.get_status() == 0 and "command not found" not in (err or "").lower()
+            exists = cmd_ok and db_user in out
             return {
                 "step": "5.D", "status": exists, "db_user": db_user,
-                "message": None if exists else f"User '{db_user}' not found",
+                "message": None if exists else (err.strip() or f"User '{db_user}' not found"),
                 "command_output": (out + "\n" + err).strip() or None,
             }
         except Exception as e:

@@ -22,5 +22,6 @@ class User(Base):
     attendance_number = Column(String(5), nullable=True, default=None)
     role = Column(String(20), nullable=False, default=UserRole.GUEST.value)
     is_premium = Column(Boolean, nullable=False, default=True)
+    is_blacklisted = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

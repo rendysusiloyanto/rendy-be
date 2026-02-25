@@ -144,6 +144,7 @@ async def get_me(user: User = Depends(get_current_user)):
         attendance_number=user.attendance_number,
         role=user.role,
         is_premium=user.is_premium,
+        is_blacklisted=user.is_blacklisted,
         created_at=user.created_at,
         updated_at=user.updated_at,
     )

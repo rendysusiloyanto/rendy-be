@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
-from app.routers import auth, openvpn, ukk
+from app.routers import auth, users, request_access, openvpn, ukk, learning, announcements, support
 from app.openvpn.background import openvpn_traffic_poller
 
 settings = get_settings()
@@ -35,8 +35,13 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(request_access.router)
+app.include_router(users.router)
 app.include_router(openvpn.router)
 app.include_router(ukk.router)
+app.include_router(learning.router)
+app.include_router(announcements.router)
+app.include_router(support.router)
 
 
 @app.get("/")

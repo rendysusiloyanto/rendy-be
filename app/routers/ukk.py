@@ -2,9 +2,11 @@
 UKK Test Service: nodes (admin) + WebSocket run test.
 TestRunner dijalankan dari app.ukk_runner (tanpa dependensi path luar).
 Client bisa kirim { "action": "cancel" } untuk membatalkan test.
+Rate limit: 10 percobaan per menit per user.
 """
 import asyncio
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, Depends, HTTPException, WebSocket
 from sqlalchemy.orm import Session
@@ -18,6 +20,27 @@ from app.ukk_runner import TestRunner, TestStopException
 
 # Persentase minimal untuk dianggap "sukses" dan masuk leaderboard
 LEADERBOARD_MIN_PERCENTAGE = 70.0
+
+# Rate limit test: 10 percobaan per menit per user
+TEST_RATE_LIMIT_WINDOW_SECONDS = 60
+TEST_RATE_LIMIT_MAX_REQUESTS = 10
+_test_rate_limit_storage: dict[str, list[float]] = {}
+_test_rate_limit_lock = asyncio.Lock()
+
+
+async def _check_test_rate_limit(user_id: str) -> bool:
+    """Return True jika user boleh jalankan test, False jika kena rate limit."""
+    async with _test_rate_limit_lock:
+        now = time.monotonic()
+        if user_id not in _test_rate_limit_storage:
+            _test_rate_limit_storage[user_id] = []
+        times = _test_rate_limit_storage[user_id]
+        times[:] = [t for t in times if now - t < TEST_RATE_LIMIT_WINDOW_SECONDS]
+        if len(times) >= TEST_RATE_LIMIT_MAX_REQUESTS:
+            return False
+        times.append(now)
+        return True
+
 
 router = APIRouter(prefix="/api/ukk", tags=["ukk"])
 _executor = ThreadPoolExecutor(max_workers=2)
@@ -140,6 +163,21 @@ async def ukk_test_websocket(websocket: WebSocket):
             await websocket.send_json({"event": "error", "message": "Token tidak valid"})
             await websocket.close(code=4003)
             return
+        if user.is_blacklisted:
+            await websocket.send_json({
+                "event": "error",
+                "message": "Akun diblokir. Silakan hubungi admin untuk request akses.",
+            })
+            await websocket.close(code=4003)
+            return
+        allowed = await _check_test_rate_limit(user.id)
+        if not allowed:
+            await websocket.send_json({
+                "event": "error",
+                "message": f"Rate limit: maksimal {TEST_RATE_LIMIT_MAX_REQUESTS} percobaan per {TEST_RATE_LIMIT_WINDOW_SECONDS} detik. Coba lagi nanti.",
+            })
+            await websocket.close(code=4029)
+            return
     finally:
         db.close()
 
@@ -194,21 +232,30 @@ async def ukk_test_websocket(websocket: WebSocket):
     def save_leaderboard_if_success(summary: dict) -> None:
         if not summary or summary.get("percentage") is None:
             return
-        if float(summary["percentage"]) < LEADERBOARD_MIN_PERCENTAGE:
+        pct = float(summary["percentage"])
+        if pct < LEADERBOARD_MIN_PERCENTAGE:
             return
         db = next(get_db())
         try:
             existing = db.query(UKKTestResult).filter(UKKTestResult.user_id == user.id).first()
+            total = int(summary.get("total", 0))
+            max_score = int(summary.get("max", 0))
+            grade = str(summary.get("grade", ""))
             if not existing:
                 rec = UKKTestResult(
                     user_id=user.id,
-                    total_score=int(summary.get("total", 0)),
-                    max_score=int(summary.get("max", 0)),
-                    percentage=float(summary["percentage"]),
-                    grade=str(summary.get("grade", "")),
+                    total_score=total,
+                    max_score=max_score,
+                    percentage=pct,
+                    grade=grade,
                 )
                 db.add(rec)
-                db.commit()
+            elif pct > existing.percentage:
+                existing.total_score = total
+                existing.max_score = max_score
+                existing.percentage = pct
+                existing.grade = grade
+            db.commit()
         finally:
             db.close()
 

@@ -91,15 +91,21 @@ class TestRunner:
                 self.data["vm_proxmox"]["inputs"]["password"]
             ).connect()
             access_status = True
-        except Exception:
+            ssh_error = None
+        except Exception as e:
             access_status = False
+            ssh_error = str(e) or type(e).__name__
 
         result = format_result(
             "proxmox", "PVE-03", "Validate Proxmox SSH Access",
-            {"status": access_status}
+            {"status": access_status, "message": ssh_error}
         )
         self.score.add(result)
         yield result
+        if not access_status:
+            raise TestStopException(
+                f"Proxmox SSH Access gagal. Test dihentikan. Error: {ssh_error}"
+            )
 
     def run_ubuntu(self):
         scanner = VMChecker([self.pve_ssh])
@@ -149,15 +155,21 @@ class TestRunner:
                 self.data["vm_ubuntu"]["inputs"]["password"]
             ).connect()
             access_status = True
-        except Exception:
+            ssh_error = None
+        except Exception as e:
             access_status = False
+            ssh_error = str(e) or type(e).__name__
 
         result = format_result(
             "ubuntu", "UBU-03", "Validate Ubuntu SSH Access",
-            {"status": access_status}
+            {"status": access_status, "message": ssh_error}
         )
         self.score.add(result)
         yield result
+        if not access_status:
+            raise TestStopException(
+                f"Ubuntu SSH Access gagal. Test dihentikan. Error: {ssh_error}"
+            )
 
     def run_php(self):
         checker = PHPChecker(self.ubuntu_ssh)

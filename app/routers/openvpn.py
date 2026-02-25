@@ -2,7 +2,7 @@ import subprocess
 from urllib.parse import parse_qs
 from fastapi import APIRouter, Depends, HTTPException, Request, status, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
-from app.auth import get_current_user_premium, get_user_from_token
+from app.auth import require_not_blacklisted, get_user_from_token
 from app.database import get_db
 from app.models.user import User
 from app.openvpn import create_openvpn_client, read_openvpn_client, get_openvpn_status
@@ -12,10 +12,10 @@ router = APIRouter(prefix="/api/openvpn", tags=["openvpn"])
 
 
 @router.get("/status")
-def get_status(user: User = Depends(get_current_user_premium)):
+def get_status(user: User = Depends(require_not_blacklisted)):
     """
     Cek apakah user sudah punya config OpenVPN. Email diambil dari session.
-    Hanya untuk akun premium.
+    Untuk semua user (premium/non-premium) selama tidak blacklist.
     """
     email = user.email
     if not email:
@@ -42,10 +42,10 @@ def _vpn_role(user: User) -> str:
 
 
 @router.post("/create")
-def create_config(user: User = Depends(get_current_user_premium)):
+def create_config(user: User = Depends(require_not_blacklisted)):
     """
     Buat config OpenVPN untuk user yang login. Email diambil dari session.
-    Hanya untuk akun premium. Gagal jika config sudah ada.
+    Untuk semua user (premium/non-premium) selama tidak blacklist. Gagal jika config sudah ada.
     """
     email = user.email
     if not email:
@@ -95,10 +95,10 @@ def create_config(user: User = Depends(get_current_user_premium)):
 
 
 @router.get("/config", response_class=Response)
-def get_config(user: User = Depends(get_current_user_premium)):
+def get_config(user: User = Depends(require_not_blacklisted)):
     """
     Download file .ovpn untuk user yang login. Email diambil dari session.
-    Hanya untuk akun premium.
+    Untuk semua user (premium/non-premium) selama tidak blacklist.
     """
     email = user.email
     if not email:
@@ -130,7 +130,7 @@ def get_config(user: User = Depends(get_current_user_premium)):
 
 
 @router.get("/traffic")
-def get_traffic(request: Request, user: User = Depends(get_current_user_premium)):
+def get_traffic(request: Request, user: User = Depends(require_not_blacklisted)):
     """
     Traffic I/O terbaru untuk user (username = email). Hanya untuk akun premium.
     Return null jika client belum terhubung ke VPN.
@@ -157,8 +157,8 @@ def get_traffic(request: Request, user: User = Depends(get_current_user_premium)
 @router.websocket("/traffic/ws")
 async def traffic_websocket(websocket: WebSocket):
     """
-    WebSocket untuk realtime traffic. Query: token=JWT. Hanya premium.
-    Server mengirim update traffic (bytes_received, bytes_sent) setiap ~1 detik.
+    WebSocket untuk realtime traffic. Query: token=JWT.
+    Untuk semua user (premium/non-premium) selama tidak blacklist.
     """
     await websocket.accept()
     query_string = websocket.scope.get("query_string", b"").decode()
@@ -173,7 +173,10 @@ async def traffic_websocket(websocket: WebSocket):
     db = next(get_db())
     try:
         user = get_user_from_token(token, db)
-        if not user or not user.is_premium:
+        if not user:
+            await websocket.close(code=4003)
+            return
+        if user.is_blacklisted:
             await websocket.close(code=4003)
             return
         username = sanitize_username(user.email)

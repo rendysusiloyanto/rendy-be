@@ -10,6 +10,7 @@ class UserBase(BaseModel):
     attendance_number: str | None = None
     role: UserRole = UserRole.GUEST
     is_premium: bool = True
+    is_blacklisted: bool = False
 
 
 class UserCreate(UserBase):
@@ -24,11 +25,22 @@ class UserResponse(UserBase):
     attendance_number: str | None
     role: str
     is_premium: bool
+    is_blacklisted: bool
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class UserUpdate(BaseModel):
+    """Schema untuk update user (field optional)."""
+    full_name: str | None = None
+    class_name: str | None = None
+    attendance_number: str | None = None
+    role: UserRole | None = None
+    is_premium: bool | None = None
+    is_blacklisted: bool | None = None
 
 
 class TokenPayload(BaseModel):

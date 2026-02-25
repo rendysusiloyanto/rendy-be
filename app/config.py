@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Frontend URL for CORS
     frontend_url: str = "http://localhost:3000"
 
+    # Support/QRIS: path absolut ke folder upload (kosong = pakai relative ke backend)
+    support_upload_dir: str = ""
+
     class Config:
         env_file = ".env"
 

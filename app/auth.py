@@ -85,12 +85,8 @@ def get_current_user(
     return user
 
 
-def get_user_from_token(token: str, db: Session) -> User | None:
-    """Untuk WebSocket: ambil user dari token string. Return None jika invalid."""
-    payload = decode_token(token)
-    if not payload:
-        return None
-    return db.query(User).filter(User.id == payload.sub).first()
+# Pesan seragam untuk user blacklisted (digunakan di endpoint yang memblokir akses)
+BLACKLIST_MESSAGE = "Akun diblokir. Silakan hubungi admin untuk request akses."
 
 
 def get_current_user_premium(
@@ -103,6 +99,36 @@ def get_current_user_premium(
             detail="Fitur ini hanya untuk akun premium.",
         )
     return user
+
+
+def get_current_user_premium_not_blacklisted(
+    user: User = Depends(get_current_user_premium),
+) -> User:
+    """User harus premium dan tidak blacklisted. Untuk OpenVPN create/status/download."""
+    if user.is_blacklisted:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=BLACKLIST_MESSAGE,
+        )
+    return user
+
+
+def require_not_blacklisted(user: User = Depends(get_current_user)) -> User:
+    """User harus login dan tidak blacklisted. Untuk VPN, test, buka detail learning."""
+    if user.is_blacklisted:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=BLACKLIST_MESSAGE,
+        )
+    return user
+
+
+def get_user_from_token(token: str, db: Session) -> User | None:
+    """Untuk WebSocket: ambil user dari token string. Return None jika invalid."""
+    payload = decode_token(token)
+    if not payload:
+        return None
+    return db.query(User).filter(User.id == payload.sub).first()
 
 
 def get_current_user_admin(
