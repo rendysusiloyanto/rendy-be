@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     # Premium request: path folder upload bukti transfer (kosong = backend/uploads/premium)
     premium_upload_dir: str = ""
 
+    # Video upload: path folder for streamed videos (kosong = backend/uploads/videos)
+    video_upload_dir: str = ""
+
+    # Video stream token expiry (minutes)
+    video_stream_token_expire_minutes: int = 60
+
     class Config:
         env_file = ".env"
 

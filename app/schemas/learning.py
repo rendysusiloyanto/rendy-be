@@ -59,6 +59,7 @@ class LearningResponse(BaseModel):
     thumbnail: str | None
     content: str | None
     video_url: str | None
+    video_id: str | None = None
     is_published: bool
     is_premium: bool
     created_at: str

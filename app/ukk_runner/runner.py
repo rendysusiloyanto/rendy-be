@@ -74,10 +74,16 @@ class TestRunner:
             yield result
 
         status = scanner.check_status(node_ssh_connection, vm["vmid"])
-        expected = self.data["vm_proxmox"]["expected"]["vm_status"]
+        expected = (self.data["vm_proxmox"]["expected"].get("vm_status") or "running").strip()
+        status_ok = (status or "").strip().lower() == expected.lower()
         result = format_result(
             "proxmox", "PVE-02", "Validate VM Running",
-            {"status": status == expected}
+            {
+                "status": status_ok,
+                "expected": expected,
+                "actual": status or "unknown",
+                "message": None if status_ok else f"expected vm_status={expected!r}, actual={status!r}",
+            }
         )
         self.score.add(result)
         yield result
