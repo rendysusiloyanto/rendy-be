@@ -26,7 +26,7 @@ class ProxmoxNodeResponse(BaseModel):
     id: str
     host: str
     user: str
-    password: str  # tampilkan untuk admin (bisa diganti mask nanti)
+    password: str  # shown to admin (can be masked later)
     created_at: str
 
     class Config:

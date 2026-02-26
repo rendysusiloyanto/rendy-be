@@ -1,5 +1,5 @@
 """
-Support / QRIS: satu gambar + deskripsi. Admin upload & set description. Public GET.
+Support / QRIS: single image + description. Admin uploads & sets description. Public GET.
 """
 import shutil
 from pathlib import Path
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/support", tags=["support"])
 
 SUPPORT_IMAGE_FILENAME = "qris.png"
 
-# Path folder upload: dari env SUPPORT_UPLOAD_DIR (absolut) atau relative ke backend
+# Upload folder path: from env SUPPORT_UPLOAD_DIR (absolute) or relative to backend
 def _upload_dir() -> Path:
     settings = get_settings()
     if settings.support_upload_dir:
@@ -35,12 +35,12 @@ def _get_setting(db: Session) -> SupportSetting | None:
 
 class SupportResponse(BaseModel):
     description: str | None
-    image_url: str | None  # "/api/support/image" jika ada gambar
+    image_url: str | None  # "/api/support/image" if image exists
 
 
 @router.get("", response_model=SupportResponse)
 def get_support(db: Session = Depends(get_db)):
-    """Get deskripsi dan URL gambar support/QRIS (public)."""
+    """Get support/QRIS description and image URL (public)."""
     row = _get_setting(db)
     if not row:
         return SupportResponse(description=None, image_url=None)
@@ -50,16 +50,16 @@ def get_support(db: Session = Depends(get_db)):
 
 @router.get("/image")
 def get_support_image(db: Session = Depends(get_db)):
-    """Get file gambar QRIS/support (public)."""
+    """Get QRIS/support image file (public)."""
     row = _get_setting(db)
     if not row or not row.image_path:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gambar belum diunggah.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not uploaded yet.")
     upload_dir = _upload_dir()
     path = upload_dir / (row.image_path or SUPPORT_IMAGE_FILENAME)
     if not path.is_file():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"File tidak ditemukan di {path!s}.",
+            detail=f"File not found at {path!s}.",
         )
     return FileResponse(path, media_type="image/png")
 
@@ -72,7 +72,7 @@ def admin_update_support(
     db: Session = Depends(get_db),
 ):
     """
-    Admin: upload gambar QRIS dan/atau set description.
+    Admin: upload QRIS image and/or set description.
     Form: description (optional), file (optional, image).
     """
     row = _get_setting(db)
@@ -89,4 +89,4 @@ def admin_update_support(
             shutil.copyfileobj(file.file, f)
         row.image_path = SUPPORT_IMAGE_FILENAME
     db.commit()
-    return {"message": "Support/QRIS berhasil diperbarui."}
+    return {"message": "Support/QRIS updated successfully."}

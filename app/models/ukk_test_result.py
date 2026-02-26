@@ -5,7 +5,7 @@ from app.database import Base
 
 
 class UKKTestResult(Base):
-    """Hasil test UKK yang sukses (untuk leaderboard). Satu entry per user (penyelesaian pertama)."""
+    """Successful UKK test result (for leaderboard). One entry per user (first completion)."""
     __tablename__ = "ukk_test_results"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

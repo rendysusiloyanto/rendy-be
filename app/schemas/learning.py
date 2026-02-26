@@ -22,7 +22,7 @@ class LearningUpdate(BaseModel):
 
 
 class LearningListResponse(BaseModel):
-    """Response untuk list learning (tanpa is_published dan content). Frontend: video_url hanya ada jika user premium."""
+    """Response for learning list (without is_published and content). Frontend: video_url only present if user is premium."""
     id: str
     title: str
     description: str | None
@@ -37,7 +37,7 @@ class LearningListResponse(BaseModel):
 
 
 class LearningDetailResponse(BaseModel):
-    """Response detail untuk user (tanpa is_published). video_url hanya ada jika user premium."""
+    """Detail response for user (without is_published). video_url only present if user is premium."""
     id: str
     title: str
     description: str | None

@@ -21,7 +21,7 @@ def _thumbnail_dir() -> Path:
 def _ensure_thumbnail_dir():
     _thumbnail_dir().mkdir(parents=True, exist_ok=True)
 
-# Blacklisted boleh lihat list (thumbnail + title). Buka detail (video, deskripsi lengkap) diblokir.
+# Blacklisted users can see list (thumbnail + title). Opening detail (video, full description) is blocked.
 
 
 @router.get("")
@@ -30,7 +30,7 @@ def list_learnings(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    """Daftar learning. Field video_url tidak dikirim sama sekali jika user non-premium."""
+    """List learnings. video_url field is not sent at all for non-premium users."""
     q = db.query(Learning).order_by(Learning.created_at.desc())
     if published_only:
         q = q.filter(Learning.is_published == True)
@@ -63,7 +63,7 @@ def admin_list_learnings(
     db: Session = Depends(get_db),
     _user=Depends(get_current_user_admin),
 ):
-    """Admin: daftar semua learning (termasuk yang belum dipublikasi)."""
+    """Admin: list all learnings (including unpublished)."""
     items = db.query(Learning).order_by(Learning.created_at.desc()).all()
     return [
         LearningResponse(
@@ -127,7 +127,7 @@ def get_learning(
         raise HTTPException(status_code=403, detail=BLACKLIST_MESSAGE)
     item = db.query(Learning).filter(Learning.id == learning_id).first()
     if not item:
-        raise HTTPException(status_code=404, detail="Learning tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Learning not found")
     show_video = user.is_premium
     d = {
         "id": item.id,
@@ -223,7 +223,7 @@ def update_learning(
     """Update learning. Form fields optional. Optional files: thumbnail, video (replaces uploaded video)."""
     item = db.query(Learning).filter(Learning.id == learning_id).first()
     if not item:
-        raise HTTPException(status_code=404, detail="Learning tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Learning not found")
     if title is not None:
         item.title = title
     if description is not None:
@@ -275,7 +275,7 @@ def delete_learning(
 ):
     item = db.query(Learning).filter(Learning.id == learning_id).first()
     if not item:
-        raise HTTPException(status_code=404, detail="Learning tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Learning not found")
     db.delete(item)
     db.commit()
-    return {"message": "Learning dihapus"}
+    return {"message": "Learning deleted"}

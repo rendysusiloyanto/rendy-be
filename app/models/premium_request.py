@@ -1,4 +1,4 @@
-"""Request premium: user upload bukti transfer (screenshot) + message, admin approve → is_premium."""
+"""Premium request: user uploads transfer proof (screenshot) + message, admin approve → is_premium."""
 import uuid
 import enum
 from datetime import datetime

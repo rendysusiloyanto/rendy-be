@@ -34,7 +34,7 @@ class UserResponse(UserBase):
 
 
 class UserUpdate(BaseModel):
-    """Schema untuk update user (field optional)."""
+    """Schema for updating user (fields optional)."""
     full_name: str | None = None
     class_name: str | None = None
     attendance_number: str | None = None

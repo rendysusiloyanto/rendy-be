@@ -19,13 +19,13 @@ class Settings(BaseSettings):
     # Frontend URL for CORS
     frontend_url: str = "http://localhost:3000"
 
-    # Support/QRIS: path absolut ke folder upload (kosong = pakai relative ke backend)
+    # Support/QRIS: absolute path to upload folder (empty = use relative to backend)
     support_upload_dir: str = ""
 
-    # Premium request: path folder upload bukti transfer (kosong = backend/uploads/premium)
+    # Premium request: upload folder for transfer proof (empty = backend/uploads/premium)
     premium_upload_dir: str = ""
 
-    # Video upload: path folder for streamed videos (kosong = backend/uploads/videos)
+    # Video upload: folder path for streamed videos (empty = backend/uploads/videos)
     video_upload_dir: str = ""
 
     # Video stream token expiry (minutes)

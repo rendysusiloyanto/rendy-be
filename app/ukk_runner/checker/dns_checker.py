@@ -46,7 +46,7 @@ class DNSChecker:
                     "domain": domain or "",
                     "expected_ip": expected_ip or "",
                     "actual_ip": "",
-                    "message": "Domain atau expected IP kosong",
+                    "message": "Domain or expected IP is empty",
                     "command_output": None,
                 }
             ssh = self.vm_ssh_connection
@@ -61,7 +61,7 @@ class DNSChecker:
                 "domain": domain,
                 "expected_ip": expected_ip,
                 "actual_ip": resolved_ip,
-                "message": None if correct else ("Forward DNS gagal / mismatch" if not cmd_ok else "Forward DNS mismatch"),
+                "message": None if correct else ("Forward DNS failed / mismatch" if not cmd_ok else "Forward DNS mismatch"),
                 "command_output": (out + "\n" + err).strip() or None,
             }
         except Exception as e:
@@ -76,7 +76,7 @@ class DNSChecker:
                     "ip": ip_address or "",
                     "expected_domain": expected_domain or "",
                     "actual_domain": "",
-                    "message": "IP atau expected domain kosong",
+                    "message": "IP or expected domain is empty",
                     "command_output": None,
                 }
             ssh = self.vm_ssh_connection
@@ -91,7 +91,7 @@ class DNSChecker:
                 "ip": ip_address,
                 "expected_domain": expected_domain,
                 "actual_domain": resolved_domain,
-                "message": None if correct else ("Reverse DNS gagal / mismatch" if not cmd_ok else "Reverse DNS mismatch"),
+                "message": None if correct else ("Reverse DNS failed / mismatch" if not cmd_ok else "Reverse DNS mismatch"),
                 "command_output": (out + "\n" + err).strip() or None,
             }
         except Exception as e:

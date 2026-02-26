@@ -20,7 +20,7 @@ def list_request_access(
     _admin: User = Depends(get_current_user_admin),
     db: Session = Depends(get_db),
 ):
-    """Daftar semua request access (hanya admin). Optional ?status_filter=PENDING."""
+    """List all access requests (admin only). Optional ?status_filter=PENDING."""
     q = (
         db.query(AccessRequest, User)
         .join(User, AccessRequest.user_id == User.id)
@@ -51,19 +51,19 @@ def review_request_access(
     admin: User = Depends(get_current_user_admin),
     db: Session = Depends(get_db),
 ):
-    """Approve atau reject request access (hanya admin). Approve = user is_blacklisted di-set false."""
+    """Approve or reject access request (admin only). Approve sets user is_blacklisted to false."""
     if body.status not in (AccessRequestStatus.APPROVED, AccessRequestStatus.REJECTED):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="status harus APPROVED atau REJECTED",
+            detail="status must be APPROVED or REJECTED",
         )
     req = db.query(AccessRequest).filter(AccessRequest.id == request_id).first()
     if not req:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request tidak ditemukan")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
     if req.status != AccessRequestStatus.PENDING.value:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Request ini sudah ditinjau.",
+            detail="This request has already been reviewed.",
         )
     req.status = body.status.value
     req.reviewed_at = datetime.utcnow()
@@ -123,7 +123,7 @@ def get_user(
     """Get satu user by id (hanya admin)."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -148,7 +148,7 @@ def update_user(
     """Edit user (hanya admin)."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     if body.full_name is not None:
         user.full_name = body.full_name
     if body.class_name is not None:

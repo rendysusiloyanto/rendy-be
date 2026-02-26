@@ -4,13 +4,13 @@ from app.models.access_request import AccessRequestStatus
 
 
 class RequestAccessBody(BaseModel):
-    """Body untuk submit request access. User dari JWT. Hanya alasan (optional)."""
+    """Body for submitting access request. User from JWT. Reason only (optional)."""
     reason: str | None = None
-    message: str | None = None  # alias; reason/message disimpan ke kolom message
+    message: str | None = None  # alias; reason/message stored in message column
 
 
 class AccessRequestResponse(BaseModel):
-    """Response untuk satu access request (admin list/detail)."""
+    """Response for a single access request (admin list/detail)."""
     id: str
     user_id: str
     user_email: str
@@ -25,5 +25,5 @@ class AccessRequestResponse(BaseModel):
 
 
 class AccessRequestReview(BaseModel):
-    """Body untuk admin approve/reject."""
-    status: AccessRequestStatus  # APPROVED atau REJECTED
+    """Body for admin approve/reject."""
+    status: AccessRequestStatus  # APPROVED or REJECTED

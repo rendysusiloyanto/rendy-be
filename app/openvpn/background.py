@@ -1,4 +1,4 @@
-"""Background task: poll OpenVPN management dan kirim ke WebSocket clients."""
+"""Background task: poll OpenVPN management and send to WebSocket clients."""
 import asyncio
 import time
 from app.openvpn.config import OPENVPN_POLL_INTERVAL
@@ -7,7 +7,7 @@ from app.openvpn.traffic import fetch_openvpn_status, parse_clients
 
 def _enrich_client(c: dict, last_snapshot: dict) -> dict:
     """
-    Hitung delta bytes dan speed (bps/kbps) seperti openvpn-collector.
+    Compute delta bytes and speed (bps/kbps) like openvpn-collector.
     """
     key = c["common_name"]
     now = time.time()

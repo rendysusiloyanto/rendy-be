@@ -15,13 +15,13 @@ settings = get_settings()
 
 @router.post("/login", response_model=TokenResponse)
 def login(body: LoginRequest, db: Session = Depends(get_db)):
-    """Login dengan email dan password."""
+    """Login with email and password."""
     email = body.email.strip().lower()
     user = db.query(User).filter(func.lower(User.email) == email).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email atau password salah")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
     if not verify_password(body.password, user.password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email atau password salah")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
     token = create_access_token(user.id, user.email)
     return TokenResponse(access_token=token)
 
@@ -32,12 +32,12 @@ def set_password(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Set atau ubah password."""
+    """Set or change password."""
     if len(body.new_password) < 6:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password minimal 6 karakter")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 6 characters")
     user.password = hash_password(body.new_password)
     db.commit()
-    return {"message": "Password berhasil diubah"}
+    return {"message": "Password updated successfully"}
 
 # Authlib OAuth - we'll use env from our settings
 

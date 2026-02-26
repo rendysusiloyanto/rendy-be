@@ -14,7 +14,7 @@ def sanitize_username(email: str) -> str:
 
 
 def create_openvpn_client(email: str, role: str) -> dict:
-    """Buat client OpenVPN. Raises ValueError, RuntimeError, FileNotFoundError, subprocess.CalledProcessError."""
+    """Create OpenVPN client. Raises ValueError, RuntimeError, FileNotFoundError, subprocess.CalledProcessError."""
     username = sanitize_username(email)
 
     if not os.path.isdir(EASYRSA_DIR):
@@ -78,18 +78,18 @@ def create_openvpn_client(email: str, role: str) -> dict:
 
 
 def read_openvpn_client(email: str) -> str:
-    """Baca isi file .ovpn client. Raises FileNotFoundError jika belum pernah dibuat."""
+    """Read .ovpn client file contents. Raises FileNotFoundError if not yet created."""
     username = sanitize_username(email)
     ovpn_path = os.path.join(CLIENT_OUTPUT_DIR, f"{username}.ovpn")
     if not os.path.exists(ovpn_path):
-        raise FileNotFoundError(f"OpenVPN config belum dibuat untuk email ini. Buat config dulu.")
+        raise FileNotFoundError("OpenVPN config has not been created for this email. Create config first.")
     with open(ovpn_path, "r") as f:
         return f.read()
 
 
 def get_openvpn_status(email: str) -> dict:
     """
-    Cek apakah user sudah punya config OpenVPN.
+    Check whether user already has OpenVPN config.
     Returns: { "has_config": bool, "username": str | None, "ip": str | None }
     """
     username = sanitize_username(email)

@@ -43,7 +43,7 @@ class MySQLChecker:
     def check_database_exists(self, db_name, mysql_user="root", mysql_password=None):
         try:
             if not (db_name and str(db_name).strip()):
-                return {"step": "5.C", "status": False, "database": db_name or "", "message": "DB name kosong"}
+                return {"step": "5.C", "status": False, "database": db_name or "", "message": "DB name is empty"}
             cmd = self._build_mysql_command(f"SHOW DATABASES LIKE '{db_name}';", mysql_user, mysql_password)
             res = self.vm_ssh_connection.run(cmd, use_sudo=(mysql_password is None))
             out, err = res.get_output(), res.get_error()
@@ -60,7 +60,7 @@ class MySQLChecker:
     def check_database_user_exists(self, db_user, mysql_user="root", mysql_password=None):
         try:
             if not (db_user is not None and str(db_user).strip()):
-                return {"step": "5.D", "status": False, "db_user": db_user or "", "message": "DB user kosong", "command_output": None}
+                return {"step": "5.D", "status": False, "db_user": db_user or "", "message": "DB user is empty", "command_output": None}
             cmd = self._build_mysql_command(f"SELECT User FROM mysql.user WHERE User = '{db_user}';", mysql_user, mysql_password)
             res = self.vm_ssh_connection.run(cmd, use_sudo=(mysql_password is None))
             out, err = res.get_output(), res.get_error()

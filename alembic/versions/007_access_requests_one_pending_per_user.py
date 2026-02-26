@@ -1,4 +1,4 @@
-"""access_requests: hapus duplikat PENDING, satu PENDING per user_id
+"""access_requests: remove duplicate PENDING, one PENDING per user_id
 
 Revision ID: 007
 Revises: 006
@@ -16,7 +16,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Hapus duplikat PENDING: simpan hanya yang requested_at terbaru per user_id
+    # Remove duplicate PENDING: keep only the latest requested_at per user_id
     op.execute("""
         DELETE FROM access_requests a
         USING access_requests b
@@ -25,7 +25,7 @@ def upgrade() -> None:
           AND b.status = 'PENDING'
           AND a.requested_at < b.requested_at
     """)
-    # Satu PENDING per user (partial unique index)
+    # One PENDING per user (partial unique index)
     op.create_index(
         "ix_access_requests_user_id_pending",
         "access_requests",

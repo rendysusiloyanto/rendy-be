@@ -12,7 +12,7 @@ from app.schemas.user import TokenPayload
 settings = get_settings()
 security = HTTPBearer(auto_error=False)
 
-# ✅ Gunakan Argon2
+# Use Argon2 for password hashing
 pwd_context = CryptContext(
     schemes=["argon2"],
     deprecated="auto",
@@ -85,18 +85,18 @@ def get_current_user(
     return user
 
 
-# Pesan seragam untuk user blacklisted (digunakan di endpoint yang memblokir akses)
-BLACKLIST_MESSAGE = "Akun diblokir. Silakan hubungi admin untuk request akses."
+# Uniform message for blacklisted users (used by endpoints that block access)
+BLACKLIST_MESSAGE = "Account is blocked. Please contact admin to request access."
 
 
 def get_current_user_premium(
     user: User = Depends(get_current_user),
 ) -> User:
-    """User harus login dan is_premium=True."""
+    """User must be logged in and is_premium=True."""
     if not user.is_premium:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Fitur ini hanya untuk akun premium.",
+            detail="This feature is for premium accounts only.",
         )
     return user
 
@@ -104,7 +104,7 @@ def get_current_user_premium(
 def get_current_user_premium_not_blacklisted(
     user: User = Depends(get_current_user_premium),
 ) -> User:
-    """User harus premium dan tidak blacklisted. Untuk OpenVPN create/status/download."""
+    """User must be premium and not blacklisted. For OpenVPN create/status/download."""
     if user.is_blacklisted:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -114,7 +114,7 @@ def get_current_user_premium_not_blacklisted(
 
 
 def require_not_blacklisted(user: User = Depends(get_current_user)) -> User:
-    """User harus login dan tidak blacklisted. Untuk VPN, test, buka detail learning."""
+    """User must be logged in and not blacklisted. For VPN, test, open learning detail."""
     if user.is_blacklisted:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -124,7 +124,7 @@ def require_not_blacklisted(user: User = Depends(get_current_user)) -> User:
 
 
 def get_user_from_token(token: str, db: Session) -> User | None:
-    """Untuk WebSocket: ambil user dari token string. Return None jika invalid."""
+    """For WebSocket: get user from token string. Returns None if invalid."""
     payload = decode_token(token)
     if not payload:
         return None
@@ -134,10 +134,10 @@ def get_user_from_token(token: str, db: Session) -> User | None:
 def get_current_user_admin(
     user: User = Depends(get_current_user),
 ) -> User:
-    """User harus login dan role ADMIN."""
+    """User must be logged in and have ADMIN role."""
     if user.role != "ADMIN":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Hanya admin yang dapat mengakses.",
+            detail="Only admin can access.",
         )
     return user

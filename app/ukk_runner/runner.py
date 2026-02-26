@@ -110,7 +110,7 @@ class TestRunner:
         yield result
         if not access_status:
             raise TestStopException(
-                f"Proxmox SSH Access gagal. Test dihentikan. Error: {ssh_error}"
+                f"Proxmox SSH Access failed. Test stopped. Error: {ssh_error}"
             )
 
     def run_ubuntu(self):
@@ -174,7 +174,7 @@ class TestRunner:
         yield result
         if not access_status:
             raise TestStopException(
-                f"Ubuntu SSH Access gagal. Test dihentikan. Error: {ssh_error}"
+                f"Ubuntu SSH Access failed. Test stopped. Error: {ssh_error}"
             )
 
     def run_php(self):

@@ -1,6 +1,6 @@
 """
-Submit request akses: user harus login (Bearer token). Email diambil dari JWT.
-Body: { "reason": "optional" } atau { "message": "optional" }.
+Submit access request: user must be logged in (Bearer token). Email is taken from JWT.
+Body: { "reason": "optional" } or { "message": "optional" }.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -20,13 +20,13 @@ def submit_request_access(
     db: Session = Depends(get_db),
 ):
     """
-    Submit request akses (user dari JWT). Hanya user yang sedang diblokir yang boleh submit.
-    Body: { "reason": "..." } atau { "message": "..." } optional.
+    Submit access request (user from JWT). Only currently blocked users may submit.
+    Body: { "reason": "..." } or { "message": "..." } optional.
     """
     if not user.is_blacklisted:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Akun Anda tidak diblokir. Silakan login seperti biasa.",
+            detail="Your account is not blocked. Please log in as usual.",
         )
     existing = (
         db.query(AccessRequest)
@@ -38,7 +38,7 @@ def submit_request_access(
     )
     if existing:
         return {
-            "message": "Request akses Anda sudah terkirim. Menunggu peninjauan admin.",
+            "message": "Your access request has been sent. Awaiting admin review.",
         }
     message_val = (body.reason or body.message or "").strip() or None
     req = AccessRequest(
@@ -49,5 +49,5 @@ def submit_request_access(
     db.add(req)
     db.commit()
     return {
-        "message": "Request akses telah dikirim. Admin akan meninjau dan menghubungi Anda.",
+        "message": "Access request has been submitted. Admin will review and contact you.",
     }

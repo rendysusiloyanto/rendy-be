@@ -14,26 +14,26 @@ router = APIRouter(prefix="/api/openvpn", tags=["openvpn"])
 @router.get("/status")
 def get_status(user: User = Depends(require_not_blacklisted)):
     """
-    Cek apakah user sudah punya config OpenVPN. Email diambil dari session.
-    Untuk semua user (premium/non-premium) selama tidak blacklist.
+    Check whether user already has OpenVPN config. Email is taken from session.
+    For all users (premium/non-premium) as long as not blacklisted.
     """
     email = user.email
     if not email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email tidak ditemukan di session.",
+            detail="Email not found in session.",
         )
     try:
         return get_openvpn_status(email=email)
     except OSError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Gagal cek status: {e!s}",
+            detail=f"Failed to check status: {e!s}",
         )
 
 
 def _vpn_role(user: User) -> str:
-    """Map class_name ke role pool OpenVPN. Default GUEST."""
+    """Map class_name to OpenVPN role pool. Default GUEST."""
     name = (user.class_name or "").strip().upper().replace(" ", "_")
     from app.openvpn.config import IP_POOLS
     if name in IP_POOLS:
@@ -44,26 +44,26 @@ def _vpn_role(user: User) -> str:
 @router.post("/create")
 def create_config(user: User = Depends(require_not_blacklisted)):
     """
-    Buat config OpenVPN untuk user yang login. Email diambil dari session.
-    Untuk semua user (premium/non-premium) selama tidak blacklist. Gagal jika config sudah ada.
+    Create OpenVPN config for logged-in user. Email is taken from session.
+    For all users (premium/non-premium) as long as not blacklisted. Fails if config already exists.
     """
     email = user.email
     if not email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email tidak ditemukan di session.",
+            detail="Email not found in session.",
         )
     vpn_status = get_openvpn_status(email=email)
     if vpn_status.get("has_config"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Config OpenVPN sudah ada. Gunakan tombol Download.",
+            detail="OpenVPN config already exists. Use the Download button.",
         )
     try:
         role = _vpn_role(user)
         result = create_openvpn_client(email=email, role=role)
         return {
-            "message": "Config OpenVPN berhasil dibuat.",
+            "message": "OpenVPN config created successfully.",
             "username": result["username"],
             "ip": result["ip"],
         }
@@ -85,26 +85,26 @@ def create_config(user: User = Depends(require_not_blacklisted)):
     except subprocess.CalledProcessError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Gagal membuat sertifikat OpenVPN. Hubungi admin.",
+            detail="Failed to create OpenVPN certificate. Contact admin.",
         )
     except OSError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error sistem: {e!s}",
+            detail=f"System error: {e!s}",
         )
 
 
 @router.get("/config", response_class=Response)
 def get_config(user: User = Depends(require_not_blacklisted)):
     """
-    Download file .ovpn untuk user yang login. Email diambil dari session.
-    Untuk semua user (premium/non-premium) selama tidak blacklist.
+    Download .ovpn file for logged-in user. Email is taken from session.
+    For all users (premium/non-premium) as long as not blacklisted.
     """
     email = user.email
     if not email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email tidak ditemukan di session.",
+            detail="Email not found in session.",
         )
     try:
         content = read_openvpn_client(email=email)
@@ -116,7 +116,7 @@ def get_config(user: User = Depends(require_not_blacklisted)):
     except OSError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Gagal membaca file: {e!s}",
+            detail=f"Failed to read file: {e!s}",
         )
 
     filename = f"{user.email.split('@')[0].replace('.', '_')}.ovpn"
@@ -132,12 +132,12 @@ def get_config(user: User = Depends(require_not_blacklisted)):
 @router.get("/traffic")
 def get_traffic(request: Request, user: User = Depends(require_not_blacklisted)):
     """
-    Traffic I/O terbaru untuk user (username = email). Hanya untuk akun premium.
-    Return null jika client belum terhubung ke VPN.
+    Latest traffic I/O for user (username = email). Premium accounts only.
+    Returns null if client has not connected to VPN yet.
     """
     email = user.email
     if not email:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email tidak ditemukan.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email not found.")
     username = sanitize_username(email)
     state = getattr(request.app.state, "openvpn_traffic", None) or {}
     snapshot = state.get("traffic_snapshot", {})
@@ -157,8 +157,8 @@ def get_traffic(request: Request, user: User = Depends(require_not_blacklisted))
 @router.websocket("/traffic/ws")
 async def traffic_websocket(websocket: WebSocket):
     """
-    WebSocket untuk realtime traffic. Query: token=JWT.
-    Untuk semua user (premium/non-premium) selama tidak blacklist.
+    WebSocket for realtime traffic. Query: token=JWT.
+    For all users (premium/non-premium) as long as not blacklisted.
     """
     await websocket.accept()
     query_string = websocket.scope.get("query_string", b"").decode()

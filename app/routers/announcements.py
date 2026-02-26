@@ -67,7 +67,7 @@ def admin_list_announcements(
 def get_announcement(announcement_id: str, db: Session = Depends(get_db)):
     item = db.query(Announcement).filter(Announcement.id == announcement_id).first()
     if not item:
-        raise HTTPException(status_code=404, detail="Announcement tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Announcement not found")
     return AnnouncementResponse(
         id=item.id,
         title=item.title,
@@ -85,13 +85,13 @@ def get_announcement_attachment(
     db: Session = Depends(get_db),
     _user=Depends(get_current_user),
 ):
-    """Unduh atau tampilkan file attachment (e.g. PDF bisa dibuka di browser). Perlu login."""
+    """Download or display attachment file (e.g. PDF can be opened in browser). Login required."""
     item = db.query(Announcement).filter(Announcement.id == announcement_id).first()
     if not item or not item.attachment_path:
-        raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Attachment not found")
     path = UPLOAD_DIR / item.attachment_path
     if not path.is_file():
-        raise HTTPException(status_code=404, detail="File tidak ditemukan")
+        raise HTTPException(status_code=404, detail="File not found")
     filename = item.attachment_filename or item.attachment_path
     return FileResponse(
         path,
@@ -142,7 +142,7 @@ async def update_announcement(
 ):
     item = db.query(Announcement).filter(Announcement.id == announcement_id).first()
     if not item:
-        raise HTTPException(status_code=404, detail="Announcement tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Announcement not found")
     if title is not None:
         item.title = title
     if content is not None:
@@ -180,11 +180,11 @@ def delete_announcement(
 ):
     item = db.query(Announcement).filter(Announcement.id == announcement_id).first()
     if not item:
-        raise HTTPException(status_code=404, detail="Announcement tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Announcement not found")
     if item.attachment_path:
         path = UPLOAD_DIR / item.attachment_path
         if path.is_file():
             path.unlink()
     db.delete(item)
     db.commit()
-    return {"message": "Announcement dihapus"}
+    return {"message": "Announcement deleted"}

@@ -1,8 +1,8 @@
 """
 UKK Test Service: nodes (admin) + WebSocket run test.
-TestRunner dijalankan dari app.ukk_runner (tanpa dependensi path luar).
-Client bisa kirim { "action": "cancel" } untuk membatalkan test.
-Rate limit: 10 percobaan per menit per user.
+TestRunner runs from app.ukk_runner (no external path dependencies).
+Client can send { "action": "cancel" } to cancel the test.
+Rate limit: 10 attempts per minute per user.
 """
 import asyncio
 import threading
@@ -18,10 +18,10 @@ from app.models.user import User
 from app.schemas.ukk import ProxmoxNodeCreate, ProxmoxNodeResponse, LeaderboardEntry
 from app.ukk_runner import TestRunner, TestStopException
 
-# Persentase minimal untuk dianggap "sukses" dan masuk leaderboard
+# Minimum percentage to be considered "success" and appear on leaderboard
 LEADERBOARD_MIN_PERCENTAGE = 70.0
 
-# Rate limit test: 10 percobaan per menit per user
+# Rate limit test: 10 attempts per minute per user
 TEST_RATE_LIMIT_WINDOW_SECONDS = 60
 TEST_RATE_LIMIT_MAX_REQUESTS = 10
 _test_rate_limit_storage: dict[str, list[float]] = {}
@@ -29,7 +29,7 @@ _test_rate_limit_lock = asyncio.Lock()
 
 
 async def _check_test_rate_limit(user_id: str) -> bool:
-    """Return True jika user boleh jalankan test, False jika kena rate limit."""
+    """Return True if user may run test, False if rate limited."""
     async with _test_rate_limit_lock:
         now = time.monotonic()
         if user_id not in _test_rate_limit_storage:
@@ -53,7 +53,7 @@ def list_nodes(
     db: Session = Depends(get_db),
     _user=Depends(get_current_user_admin),
 ):
-    """Daftar node Proxmox. Hanya admin."""
+    """List Proxmox nodes. Admin only."""
     nodes = db.query(ProxmoxNode).order_by(ProxmoxNode.created_at.desc()).all()
     return [
         ProxmoxNodeResponse(
@@ -73,7 +73,7 @@ def create_node(
     db: Session = Depends(get_db),
     _user=Depends(get_current_user_admin),
 ):
-    """Tambah node Proxmox. Hanya admin."""
+    """Add Proxmox node. Admin only."""
     node = ProxmoxNode(host=body.host, user=body.user, password=body.password)
     db.add(node)
     db.commit()
@@ -93,13 +93,13 @@ def delete_node(
     db: Session = Depends(get_db),
     _user=Depends(get_current_user_admin),
 ):
-    """Hapus node Proxmox. Hanya admin."""
+    """Delete Proxmox node. Admin only."""
     node = db.query(ProxmoxNode).filter(ProxmoxNode.id == node_id).first()
     if not node:
-        raise HTTPException(status_code=404, detail="Node tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Node not found")
     db.delete(node)
     db.commit()
-    return {"message": "Node dihapus"}
+    return {"message": "Node deleted"}
 
 
 # ---------- Leaderboard ----------
@@ -107,9 +107,9 @@ def delete_node(
 @router.get("/leaderboard", response_model=list[LeaderboardEntry])
 def get_leaderboard(db: Session = Depends(get_db)):
     """
-    Daftar leaderboard: user yang berhasil menyelesaikan test (persentase >= 70%)
-    diurutkan berdasarkan siapa selesai duluan (completed_at ASC).
-    Satu entry per user (penyelesaian pertama).
+    Leaderboard list: users who completed the test (percentage >= 70%),
+    ordered by who finished first (completed_at ASC).
+    One entry per user (first completion).
     """
     results = (
         db.query(UKKTestResult, User)
@@ -138,8 +138,8 @@ def get_leaderboard(db: Session = Depends(get_db)):
 @router.websocket("/test/ws")
 async def ukk_test_websocket(websocket: WebSocket):
     """
-    Terima: { "token": "JWT", "data": { ... } } (data = payload test seperti index.html).
-    Nodes diambil dari DB. Hasil test dikirim per event.
+    Expect: { "token": "JWT", "data": { ... } } (data = test payload like index.html).
+    Nodes are loaded from DB. Test results are sent per event.
     """
     await websocket.accept()
 
@@ -152,7 +152,7 @@ async def ukk_test_websocket(websocket: WebSocket):
     token = raw.get("token")
     data = raw.get("data")
     if not token or not data:
-        await websocket.send_json({"event": "error", "message": "token dan data wajib"})
+        await websocket.send_json({"event": "error", "message": "token and data are required"})
         await websocket.close(code=4000)
         return
 
@@ -160,13 +160,13 @@ async def ukk_test_websocket(websocket: WebSocket):
     try:
         user = get_user_from_token(token, db)
         if not user:
-            await websocket.send_json({"event": "error", "message": "Token tidak valid"})
+            await websocket.send_json({"event": "error", "message": "Invalid token"})
             await websocket.close(code=4003)
             return
         if user.is_blacklisted:
             await websocket.send_json({
                 "event": "error",
-                "message": "Akun diblokir. Silakan hubungi admin untuk request akses.",
+                "message": "Account is blocked. Please contact admin to request access.",
             })
             await websocket.close(code=4003)
             return
@@ -174,7 +174,7 @@ async def ukk_test_websocket(websocket: WebSocket):
         if not allowed:
             await websocket.send_json({
                 "event": "error",
-                "message": f"Rate limit: maksimal {TEST_RATE_LIMIT_MAX_REQUESTS} percobaan per {TEST_RATE_LIMIT_WINDOW_SECONDS} detik. Coba lagi nanti.",
+                "message": f"Rate limit: max {TEST_RATE_LIMIT_MAX_REQUESTS} attempts per {TEST_RATE_LIMIT_WINDOW_SECONDS} seconds. Try again later.",
             })
             await websocket.close(code=4029)
             return
@@ -193,7 +193,7 @@ async def ukk_test_websocket(websocket: WebSocket):
     if not nodes:
         await websocket.send_json({
             "event": "error",
-            "message": "Belum ada node Proxmox. Admin harus menambah node dulu.",
+            "message": "No Proxmox nodes yet. Admin must add nodes first.",
         })
         await websocket.close(code=4000)
         return
@@ -207,7 +207,7 @@ async def ukk_test_websocket(websocket: WebSocket):
             runner = TestRunner(data, nodes)
             for r in runner.run():
                 if cancel_event.is_set():
-                    loop.call_soon_threadsafe(queue.put_nowait, ("_stop", "Test dibatalkan oleh user."))
+                    loop.call_soon_threadsafe(queue.put_nowait, ("_stop", "Test cancelled by user."))
                     return
                 loop.call_soon_threadsafe(queue.put_nowait, r)
             loop.call_soon_threadsafe(queue.put_nowait, ("_stop", None))

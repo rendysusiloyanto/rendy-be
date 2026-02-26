@@ -12,7 +12,7 @@ class AccessRequestStatus(str, enum.Enum):
 
 
 class AccessRequest(Base):
-    """Request akses dari user yang diblokir. Admin bisa lihat dan approve/reject."""
+    """Access request from blocked users. Admin can view and approve/reject."""
     __tablename__ = "access_requests"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

@@ -1,6 +1,6 @@
 """
-Premium request: user upload bukti transfer (screenshot) + message.
-User bisa re-upload (edit) dan ubah message. Admin lihat semua, approve → user is_premium.
+Premium request: user uploads transfer proof (screenshot) + message.
+User can re-upload (edit) and change message. Admin sees all, approve → user is_premium.
 """
 import shutil
 from pathlib import Path
@@ -39,11 +39,11 @@ def submit_premium_request(
     db: Session = Depends(get_db),
 ):
     """
-    User: upload screenshot bukti transfer + optional message.
-    Jika sudah ada request PENDING, akan di-update (ganti gambar + message).
+    User: upload transfer proof screenshot + optional message.
+    If a PENDING request already exists, it will be updated (replace image + message).
     """
     if not file.filename or not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File harus gambar (image).")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be an image.")
     existing = (
         db.query(PremiumRequest)
         .filter(PremiumRequest.user_id == user.id, PremiumRequest.status == PremiumRequestStatus.PENDING.value)
@@ -68,7 +68,7 @@ def submit_premium_request(
     db.commit()
     db.refresh(req)
     return {
-        "message": "Bukti transfer berhasil dikirim. Admin akan meninjau.",
+        "message": "Transfer proof submitted successfully. Admin will review.",
         "id": req.id,
         "status": req.status,
     }
@@ -79,7 +79,7 @@ def get_my_premium_request(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """User: lihat request premium saya (jika ada). Jika PENDING, tampilkan image_url dan message; bisa di-update lewat PATCH."""
+    """User: view my premium request (if any). If PENDING, shows image_url and message; can be updated via PATCH."""
     req = (
         db.query(PremiumRequest)
         .filter(PremiumRequest.user_id == user.id)
@@ -111,8 +111,8 @@ def update_my_premium_request(
     db: Session = Depends(get_db),
 ):
     """
-    User: update message dan/atau image untuk request PENDING saya.
-    Hanya request dengan status PENDING yang bisa di-edit. Kirim message dan/atau file (gambar).
+    User: update message and/or image for my PENDING request.
+    Only requests with status PENDING can be edited. Send message and/or file (image).
     """
     req = (
         db.query(PremiumRequest)
@@ -122,7 +122,7 @@ def update_my_premium_request(
     if not req:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tidak ada request premium PENDING. Buat dulu lewat POST /api/premium/request.",
+            detail="No PENDING premium request. Create one via POST /api/premium/request first.",
         )
     if message is not None:
         req.message = (message.strip() or None) if message else None
@@ -135,7 +135,7 @@ def update_my_premium_request(
     db.commit()
     db.refresh(req)
     return {
-        "message": "Request premium berhasil di-update.",
+        "message": "Premium request updated successfully.",
         "request": {
             "id": req.id,
             "status": req.status,
@@ -168,7 +168,7 @@ def admin_list_premium_requests(
     _admin: User = Depends(get_current_user_admin),
     db: Session = Depends(get_db),
 ):
-    """Admin: daftar semua premium request dengan user info."""
+    """Admin: list all premium requests with user info."""
     q = (
         db.query(PremiumRequest, User)
         .join(User, PremiumRequest.user_id == User.id)
@@ -200,18 +200,18 @@ def get_premium_request_image(
     user: User = Depends(get_current_user),
 ):
     """
-    Get image bukti transfer. User hanya bisa akses request sendiri; admin bisa akses semua.
+    Get transfer proof image. User can only access own request; admin can access all.
     """
     req = db.query(PremiumRequest).filter(PremiumRequest.id == request_id).first()
     if not req:
-        raise HTTPException(status_code=404, detail="Request tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Request not found")
     if user.role != "ADMIN" and req.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Tidak boleh akses request orang lain")
+        raise HTTPException(status_code=403, detail="Cannot access another user's request")
     if not req.image_path:
-        raise HTTPException(status_code=404, detail="Gambar belum diunggah")
+        raise HTTPException(status_code=404, detail="Image not uploaded yet")
     path = _upload_dir() / req.image_path
     if not path.is_file():
-        raise HTTPException(status_code=404, detail="File tidak ditemukan")
+        raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path, media_type="image/png")
 
 
@@ -227,18 +227,18 @@ def admin_review_premium_request(
     db: Session = Depends(get_db),
 ):
     """
-    Admin: set status APPROVED atau REJECTED.
-    Jika APPROVED, user.is_premium di-set True.
+    Admin: set status APPROVED or REJECTED.
+    If APPROVED, user.is_premium is set to True.
     """
     if body.status.upper() not in ("APPROVED", "REJECTED"):
-        raise HTTPException(status_code=400, detail="status harus APPROVED atau REJECTED")
+        raise HTTPException(status_code=400, detail="status must be APPROVED or REJECTED")
     req = db.query(PremiumRequest).filter(PremiumRequest.id == request_id).first()
     if not req:
-        raise HTTPException(status_code=404, detail="Request tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Request not found")
     req.status = body.status.upper()
     if body.status.upper() == "APPROVED":
         u = db.query(User).filter(User.id == req.user_id).first()
         if u:
             u.is_premium = True
     db.commit()
-    return {"message": "Request berhasil ditinjau.", "status": req.status}
+    return {"message": "Request reviewed successfully.", "status": req.status}

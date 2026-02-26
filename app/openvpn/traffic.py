@@ -1,13 +1,13 @@
 """
-Ambil status client OpenVPN dari management interface (status 3).
-Dipakai untuk traffic I/O (bytes_received, bytes_sent) per client.
+Fetch OpenVPN client status from management interface (status 3).
+Used for traffic I/O (bytes_received, bytes_sent) per client.
 """
 import asyncio
 from app.openvpn.config import OPENVPN_MANAGEMENT_HOST, OPENVPN_MANAGEMENT_PORT
 
 
 async def fetch_openvpn_status() -> str:
-    """Baca status 3 (client list) dari OpenVPN management. TAB-separated."""
+    """Read status 3 (client list) from OpenVPN management. TAB-separated."""
     reader, writer = await asyncio.open_connection(
         OPENVPN_MANAGEMENT_HOST, OPENVPN_MANAGEMENT_PORT
     )
@@ -23,7 +23,7 @@ async def fetch_openvpn_status() -> str:
 
 
 def parse_clients(status_text: str) -> list[dict]:
-    """Parse CLIENT_LIST dari output status 3 (TAB-separated)."""
+    """Parse CLIENT_LIST from status 3 output (TAB-separated)."""
     clients = []
     for line in status_text.splitlines():
         if not line.startswith("CLIENT_LIST"):
