@@ -153,15 +153,11 @@ def upload_video(
 
     payload = {
         "id": video.id,
-        "url": f"/api/videos/stream/{video.id}",
         "message": "Stream with Authorization: Bearer <token> (premium only).",
         "hls_ready": hls_ok,
-        "dash_ready": dash_ok,
     }
     if hls_ok:
         payload["hls_url"] = f"/api/videos/stream/{video.id}/hls/playlist.m3u8"
-    if dash_ok:
-        payload["dash_url"] = f"/api/videos/stream/{video.id}/dash/manifest.mpd"
     return payload
 
 
@@ -189,13 +185,10 @@ def get_stream_url(
 
     base = _streams_dir() / video_id
     hls_playlist = base / "hls" / "playlist.m3u8"
-    dash_manifest = base / "dash" / "manifest.mpd"
 
-    payload = {"url": f"/api/videos/stream/{video_id}", "auth_required": True}
+    payload = {"auth_required": True}
     if hls_playlist.is_file():
         payload["hls_url"] = f"/api/videos/stream/{video_id}/hls/playlist.m3u8"
-    if dash_manifest.is_file():
-        payload["dash_url"] = f"/api/videos/stream/{video_id}/dash/manifest.mpd"
     return payload
 
 

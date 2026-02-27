@@ -99,13 +99,11 @@ def get_learning_thumbnail(
 
 
 def _learning_stream_urls(video_id: str) -> dict:
-    """Return url, hls_url, dash_url when available (auth_required True)."""
+    """Return hls_url when available (auth_required True)."""
     base = video_streams_dir() / video_id
-    out = {"url": f"/api/videos/stream/{video_id}", "auth_required": True}
+    out = {"auth_required": True}
     if (base / "hls" / "playlist.m3u8").is_file():
         out["hls_url"] = f"/api/videos/stream/{video_id}/hls/playlist.m3u8"
-    if (base / "dash" / "manifest.mpd").is_file():
-        out["dash_url"] = f"/api/videos/stream/{video_id}/dash/manifest.mpd"
     return out
 
 
