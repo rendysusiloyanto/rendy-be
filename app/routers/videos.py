@@ -11,6 +11,7 @@ from fastapi.responses import Response, StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
 from app.auth import get_current_user, get_current_user_admin
 from app.database import get_db
+from app.models.learning import Learning
 from app.models.user import User
 from app.models.video import Video
 from app.services.video_upload import save_video_upload, video_upload_dir, video_streams_dir, CHUNK_SIZE
@@ -29,6 +30,13 @@ def _streams_dir() -> Path:
 
 def _ensure_upload_dir():
     _upload_dir().mkdir(parents=True, exist_ok=True)
+
+
+def _user_can_stream_video(user: User, video_id: str, db: Session) -> bool:
+    """True if user is premium or this video is used in a non-premium learning."""
+    if user.is_premium:
+        return True
+    return db.query(Learning).filter(Learning.video_id == video_id, Learning.is_premium == False).limit(1).first() is not None
 
 
 def _safe_stream_file_path(video_id: str, format_type: str, relative_path: str) -> Path | None:
@@ -171,11 +179,10 @@ def get_stream_url(
     db: Session = Depends(get_db),
 ):
     """
-    Premium only: returns the stream URL. Client must call GET /api/videos/stream/{id}
-    with Authorization: Bearer <token> to play (no shareable link).
+    Returns the stream URL when user may stream this video (premium, or video in non-premium learning).
     """
-    if not user.is_premium:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Premium required to stream videos.")
+    if not _user_can_stream_video(user, video_id, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Premium required to stream this video.")
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
@@ -202,9 +209,9 @@ def stream_hls(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Serve HLS playlist and segments. Premium only. Requires Authorization: Bearer."""
-    if not user.is_premium:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Premium required to stream videos.")
+    """Serve HLS playlist and segments. Allowed if user is premium or video is in a non-premium learning."""
+    if not _user_can_stream_video(user, video_id, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Premium required to stream this video.")
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
@@ -225,9 +232,9 @@ def stream_dash(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Serve DASH manifest and segments. Premium only. Requires Authorization: Bearer."""
-    if not user.is_premium:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Premium required to stream videos.")
+    """Serve DASH manifest and segments. Allowed if user is premium or video is in a non-premium learning."""
+    if not _user_can_stream_video(user, video_id, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Premium required to stream this video.")
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
@@ -252,12 +259,11 @@ def stream_video(
     db: Session = Depends(get_db),
 ):
     """
-    Stream video. Requires Authorization: Bearer <jwt> and premium user.
-    No shareable link; only the logged-in premium user can access.
+    Stream video. Allowed if user is premium or video is in a non-premium learning.
     Supports Range requests for seeking. Content-Disposition: inline (play, not download).
     """
-    if not user.is_premium:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Premium required to stream videos.")
+    if not _user_can_stream_video(user, video_id, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Premium required to stream this video.")
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")

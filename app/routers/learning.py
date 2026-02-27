@@ -104,12 +104,12 @@ def get_learning_video_stream_url(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Premium only: returns stream URL(s). Client must send Authorization: Bearer. HLS/DASH when available."""
-    if not user.is_premium:
-        raise HTTPException(status_code=403, detail="Premium required")
+    """Returns stream URL when user may view this learning (premium user, or non-premium learning)."""
     item = db.query(Learning).filter(Learning.id == learning_id).first()
     if not item or not item.video_id:
         raise HTTPException(status_code=404, detail="No uploaded video for this learning")
+    if not user.is_premium and item.is_premium:
+        raise HTTPException(status_code=403, detail="Premium required")
     return _learning_stream_urls(item.video_id)
 
 
@@ -138,12 +138,10 @@ def get_learning(
         "created_at": item.created_at.isoformat(),
         "updated_at": item.updated_at.isoformat(),
     }
-    # Only premium learnings get video_id/video_stream_url (and only for premium users). Non-premium learnings: same response for everyone (video_url only if set).
-    if item.is_premium and user.is_premium and item.video_id:
+    # User has permission: premium sees all, non-premium only non-premium learnings. Give stream fields when learning has uploaded video.
+    if item.video_id:
         d["video_id"] = item.video_id
         d["video_stream_url"] = f"/api/learning/{item.id}/video-stream-url"
-    if item.video_url:
-        d["video_url"] = item.video_url
     return JSONResponse(content=d)
 
 
