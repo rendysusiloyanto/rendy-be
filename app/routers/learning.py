@@ -42,6 +42,7 @@ def list_learnings(
             "thumbnail": f"/api/learning/{x.id}/thumbnail" if x.thumbnail_path else x.thumbnail,
             "is_published": x.is_published,
             "is_premium": x.is_premium,
+            "variant": getattr(x, "variant", "introduction"),
             "created_at": x.created_at.isoformat(),
             "updated_at": x.updated_at.isoformat(),
         }
@@ -67,6 +68,7 @@ def admin_list_learnings(
             video_id=x.video_id,
             is_published=x.is_published,
             is_premium=x.is_premium,
+            variant=getattr(x, "variant", "introduction"),
             created_at=x.created_at.isoformat(),
             updated_at=x.updated_at.isoformat(),
         )
@@ -135,6 +137,7 @@ def get_learning(
         "content": item.content,
         "is_published": item.is_published,
         "is_premium": item.is_premium,
+        "variant": getattr(item, "variant", "introduction"),
         "created_at": item.created_at.isoformat(),
         "updated_at": item.updated_at.isoformat(),
     }
@@ -153,6 +156,7 @@ def create_learning(
     content: str | None = Form(None),
     is_published: bool = Form(False),
     is_premium: bool = Form(False),
+    variant: str = Form("introduction"),
     thumbnail: UploadFile | None = File(None),
     video: UploadFile | None = File(None),
     thumbnail_url: str | None = Form(None),
@@ -165,6 +169,7 @@ def create_learning(
     thumbnail_url (external URL), video_url (external URL).
     Optional files: thumbnail (image), video (video file). HLS conversion runs in background.
     """
+    variant = variant if variant in ("introduction", "full") else "introduction"
     item = Learning(
         title=title,
         description=(description or "").strip() or None,
@@ -173,6 +178,7 @@ def create_learning(
         video_url=(video_url or "").strip() or None,
         is_published=is_published,
         is_premium=is_premium,
+        variant=variant,
     )
     db.add(item)
     db.flush()
@@ -188,8 +194,8 @@ def create_learning(
         item.video_id = vid.id
     db.commit()
     db.refresh(item)
-    # Run HLS/DASH conversion in background so POST returns quickly
-    if item.video_id:
+    # Only "full" variant uses FFmpeg HLS; "introduction" stays static (e.g. nginx)
+    if item.variant == "full" and item.video_id:
         vid_row = db.query(Video).filter(Video.id == item.video_id).first()
         if vid_row:
             source_path = video_upload_dir() / vid_row.path
@@ -208,6 +214,7 @@ def create_learning(
         video_id=item.video_id,
         is_published=item.is_published,
         is_premium=item.is_premium,
+        variant=item.variant,
         created_at=item.created_at.isoformat(),
         updated_at=item.updated_at.isoformat(),
     )
@@ -222,6 +229,7 @@ def update_learning(
     content: str | None = Form(None),
     is_published: bool | None = Form(None),
     is_premium: bool | None = Form(None),
+    variant: str | None = Form(None),
     thumbnail_url: str | None = Form(None),
     video_url: str | None = Form(None),
     thumbnail: UploadFile | None = File(None),
@@ -249,6 +257,8 @@ def update_learning(
         item.is_published = is_published
     if is_premium is not None:
         item.is_premium = is_premium
+    if variant is not None and variant in ("introduction", "full"):
+        item.variant = variant
     if thumbnail and thumbnail.filename and thumbnail.content_type and thumbnail.content_type.startswith("image/"):
         _ensure_thumbnail_dir()
         path = _thumbnail_dir() / f"{item.id}.png"
@@ -262,8 +272,8 @@ def update_learning(
         item.video_url = None
     db.commit()
     db.refresh(item)
-    # Run HLS/DASH conversion in background so PATCH returns quickly
-    if item.video_id:
+    # Only "full" variant uses FFmpeg HLS; "introduction" stays static (e.g. nginx)
+    if item.variant == "full" and item.video_id:
         vid_row = db.query(Video).filter(Video.id == item.video_id).first()
         if vid_row:
             source_path = video_upload_dir() / vid_row.path
@@ -282,6 +292,7 @@ def update_learning(
         video_id=item.video_id,
         is_published=item.is_published,
         is_premium=item.is_premium,
+        variant=item.variant,
         created_at=item.created_at.isoformat(),
         updated_at=item.updated_at.isoformat(),
     )

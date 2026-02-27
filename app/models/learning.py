@@ -17,5 +17,7 @@ class Learning(Base):
     video_id = Column(String(36), ForeignKey("videos.id"), nullable=True)  # our uploaded video for streaming
     is_published = Column(Boolean, nullable=False, default=False)
     is_premium = Column(Boolean, nullable=False, default=False)
+    # variant: "introduction" = simple/nginx static; "full" = stream (FFmpeg HLS)
+    variant = Column(String(32), nullable=False, default="introduction")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
