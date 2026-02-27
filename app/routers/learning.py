@@ -138,8 +138,8 @@ def get_learning(
         "created_at": item.created_at.isoformat(),
         "updated_at": item.updated_at.isoformat(),
     }
-    # Premium users get uploaded-video stream URL; everyone who can view this learning gets external video_url
-    if user.is_premium and item.video_id:
+    # Only premium learnings get video_id/video_stream_url (and only for premium users). Non-premium learnings: same response for everyone (video_url only if set).
+    if item.is_premium and user.is_premium and item.video_id:
         d["video_id"] = item.video_id
         d["video_stream_url"] = f"/api/learning/{item.id}/video-stream-url"
     if item.video_url:
