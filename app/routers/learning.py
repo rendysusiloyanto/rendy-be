@@ -127,7 +127,6 @@ def get_learning(
         raise HTTPException(status_code=404, detail="Learning not found")
     if not user.is_premium and item.is_premium:
         raise HTTPException(status_code=403, detail="Premium required to view this learning")
-    show_video = user.is_premium
     d = {
         "id": item.id,
         "title": item.title,
@@ -139,12 +138,12 @@ def get_learning(
         "created_at": item.created_at.isoformat(),
         "updated_at": item.updated_at.isoformat(),
     }
-    if show_video:
-        if item.video_id:
-            d["video_id"] = item.video_id
-            d["video_stream_url"] = f"/api/learning/{item.id}/video-stream-url"
-        else:
-            d["video_url"] = item.video_url
+    # Premium users get uploaded-video stream URL; everyone who can view this learning gets external video_url
+    if user.is_premium and item.video_id:
+        d["video_id"] = item.video_id
+        d["video_stream_url"] = f"/api/learning/{item.id}/video-stream-url"
+    if item.video_url:
+        d["video_url"] = item.video_url
     return JSONResponse(content=d)
 
 
