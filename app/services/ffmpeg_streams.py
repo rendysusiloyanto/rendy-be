@@ -24,7 +24,7 @@ def convert_to_hls(input_path: Path, output_dir: Path) -> bool:
         "-profile:v", "baseline",
         "-level", "3.0",
         "-start_number", "0",
-        "-hls_time", "10",
+        "-hls_time", "5",
         "-hls_list_size", "0",
         "-f", "hls",
         str(hls_playlist),
