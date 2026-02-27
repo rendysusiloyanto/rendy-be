@@ -28,7 +28,7 @@ def video_upload_dir() -> Path:
 
 
 def save_video_upload(file: UploadFile, db: Session) -> Video:
-    """Create a Video record and save file to disk. Caller must db.commit()."""
+    """Create a Video record and save file to disk. Flushes so FK from learnings can reference it. Caller must db.commit()."""
     ct = (file.content_type or "").split(";")[0].strip().lower()
     if ct not in VIDEO_CONTENT_TYPES and not (file.filename or "").lower().endswith((".mp4", ".webm", ".ogg", ".mov")):
         raise HTTPException(
@@ -46,4 +46,5 @@ def save_video_upload(file: UploadFile, db: Session) -> Video:
             f.write(chunk)
     video = Video(id=video_id, path=path.name, original_filename=file.filename, content_type=ct or "video/mp4")
     db.add(video)
+    db.flush()  # So learnings.video_id FK is valid when caller updates learning
     return video

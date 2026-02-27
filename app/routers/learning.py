@@ -187,6 +187,7 @@ def create_learning(
         item.thumbnail_path = path.name
     if video and video.filename:
         vid = save_video_upload(video, db)
+        db.flush()  # Ensure Video row is inserted before setting learning.video_id (FK)
         item.video_id = vid.id
     db.commit()
     db.refresh(item)
@@ -248,6 +249,7 @@ def update_learning(
         item.thumbnail_path = path.name
     if video and video.filename:
         vid = save_video_upload(video, db)
+        db.flush()  # Ensure Video row is inserted before updating learning.video_id (FK)
         item.video_id = vid.id
         item.video_url = None
     db.commit()
