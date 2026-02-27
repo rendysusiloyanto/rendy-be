@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # Video upload: folder path for streamed videos (empty = backend/uploads/videos)
     video_upload_dir: str = ""
 
+    # HLS/DASH output: folder for FFmpeg-converted streams (empty = backend/uploads/streams)
+    video_streams_dir: str = ""
+
     # Video stream token expiry (minutes)
     video_stream_token_expire_minutes: int = 60
 

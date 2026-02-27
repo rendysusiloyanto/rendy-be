@@ -17,6 +17,14 @@ def video_upload_dir() -> Path:
     return Path(__file__).resolve().parent.parent.parent / "uploads" / "videos"
 
 
+def video_streams_dir() -> Path:
+    """Directory for FFmpeg HLS/DASH output (streams/video_id/hls and .../dash)."""
+    settings = get_settings()
+    if settings.video_streams_dir:
+        return Path(settings.video_streams_dir)
+    return Path(__file__).resolve().parent.parent.parent / "uploads" / "streams"
+
+
 def save_video_upload(file: UploadFile, db: Session) -> Video:
     """Create a Video record and save file to disk. Flushes so FK from learnings can reference it. Caller must db.commit()."""
     ct = (file.content_type or "").split(";")[0].strip().lower()

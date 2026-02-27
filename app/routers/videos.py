@@ -1,18 +1,20 @@
 """
 Video upload (admin) and streaming (premium only).
 Stream requires Bearer token + premium user so links are not shareable.
-Range requests supported for seeking. Content-Disposition: inline to discourage download.
+Supports raw file stream (Range), HLS, and DASH (FFmpeg-converted). See:
+https://dev.to/ethand91/flask-video-streaming-app-tutorial-1dm3
 """
 import re
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request, status, UploadFile, File
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response, StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
 from app.auth import get_current_user, get_current_user_admin
 from app.database import get_db
 from app.models.user import User
 from app.models.video import Video
-from app.services.video_upload import save_video_upload, video_upload_dir, CHUNK_SIZE
+from app.services.video_upload import save_video_upload, video_upload_dir, video_streams_dir, CHUNK_SIZE
+from app.services.ffmpeg_streams import ensure_hls_dash_for_video
 
 router = APIRouter(prefix="/api/videos", tags=["videos"])
 
@@ -21,8 +23,39 @@ def _upload_dir() -> Path:
     return video_upload_dir()
 
 
+def _streams_dir() -> Path:
+    return video_streams_dir()
+
+
 def _ensure_upload_dir():
     _upload_dir().mkdir(parents=True, exist_ok=True)
+
+
+def _safe_stream_file_path(video_id: str, format_type: str, relative_path: str) -> Path | None:
+    """Resolve path under streams_dir/video_id/format_type. Return None if invalid (path traversal)."""
+    base = (_streams_dir() / video_id / format_type).resolve()
+    if not base.is_dir():
+        return None
+    try:
+        full = (base / relative_path).resolve()
+        full.relative_to(base)  # raises ValueError if path escaped
+    except (ValueError, OSError):
+        return None
+    if not full.is_file():
+        return None
+    return full
+
+
+def _media_type_for_filename(filename: str) -> str:
+    """Return media type for HLS/DASH segment and playlist files."""
+    lower = filename.lower()
+    if lower.endswith(".m3u8"):
+        return "application/vnd.apple.mpegurl"
+    if lower.endswith(".ts"):
+        return "video/MP2T"
+    if lower.endswith(".m4s") or lower.endswith(".mpd"):
+        return "application/dash+xml" if lower.endswith(".mpd") else "video/iso.segment"
+    return "application/octet-stream"
 
 
 def _stream_file_range(path: Path, request: Request, content_type: str):
@@ -107,17 +140,29 @@ def upload_video(
     db: Session = Depends(get_db),
 ):
     """
-    Admin: upload a video file. Returns id and stream URL pattern.
-    Frontend should call GET /api/videos/{id}/stream-url (with auth) to get a playable URL with token.
+    Admin: upload a video file. Converts to HLS and DASH via FFmpeg (sync).
+    Returns id and stream URLs. Premium users get stream with Bearer token.
     """
     video = save_video_upload(file, db)
     db.commit()
     db.refresh(video)
-    return {
+
+    source_path = _upload_dir() / video.path
+    _streams_dir().mkdir(parents=True, exist_ok=True)
+    hls_ok, dash_ok = ensure_hls_dash_for_video(video.id, source_path, _streams_dir())
+
+    payload = {
         "id": video.id,
         "url": f"/api/videos/stream/{video.id}",
-        "message": "Stream with GET /api/videos/stream/{id} and Authorization: Bearer <token> (premium only).",
+        "message": "Stream with Authorization: Bearer <token> (premium only).",
+        "hls_ready": hls_ok,
+        "dash_ready": dash_ok,
     }
+    if hls_ok:
+        payload["hls_url"] = f"/api/videos/stream/{video.id}/hls/playlist.m3u8"
+    if dash_ok:
+        payload["dash_url"] = f"/api/videos/stream/{video.id}/dash/manifest.mpd"
+    return payload
 
 
 # ---------- Premium: get stream URL (no token; client must send Bearer) ----------
@@ -141,11 +186,69 @@ def get_stream_url(
     path = _upload_dir() / video.path
     if not path.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video file not found.")
-    url = f"/api/videos/stream/{video_id}"
-    return {"url": url, "auth_required": True}
+
+    base = _streams_dir() / video_id
+    hls_playlist = base / "hls" / "playlist.m3u8"
+    dash_manifest = base / "dash" / "manifest.mpd"
+
+    payload = {"url": f"/api/videos/stream/{video_id}", "auth_required": True}
+    if hls_playlist.is_file():
+        payload["hls_url"] = f"/api/videos/stream/{video_id}/hls/playlist.m3u8"
+    if dash_manifest.is_file():
+        payload["dash_url"] = f"/api/videos/stream/{video_id}/dash/manifest.mpd"
+    return payload
 
 
-# ---------- Stream (Bearer + premium only; no query token) ----------
+# ---------- HLS/DASH stream (Bearer + premium; must be before /stream/{video_id}) ----------
+
+
+@router.get("/stream/{video_id}/hls/{path:path}")
+def stream_hls(
+    video_id: str,
+    path: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Serve HLS playlist and segments. Premium only. Requires Authorization: Bearer."""
+    if not user.is_premium:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Premium required to stream videos.")
+    video = db.query(Video).filter(Video.id == video_id).first()
+    if not video:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
+    file_path = _safe_stream_file_path(video_id, "hls", path)
+    if not file_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="HLS file not found.")
+    return FileResponse(
+        file_path,
+        media_type=_media_type_for_filename(file_path.name),
+        headers={"Content-Disposition": "inline"},
+    )
+
+
+@router.get("/stream/{video_id}/dash/{path:path}")
+def stream_dash(
+    video_id: str,
+    path: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Serve DASH manifest and segments. Premium only. Requires Authorization: Bearer."""
+    if not user.is_premium:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Premium required to stream videos.")
+    video = db.query(Video).filter(Video.id == video_id).first()
+    if not video:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
+    file_path = _safe_stream_file_path(video_id, "dash", path)
+    if not file_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="DASH file not found.")
+    return FileResponse(
+        file_path,
+        media_type=_media_type_for_filename(file_path.name),
+        headers={"Content-Disposition": "inline"},
+    )
+
+
+# ---------- Raw stream (Bearer + premium only; no query token) ----------
 
 
 @router.get("/stream/{video_id}")

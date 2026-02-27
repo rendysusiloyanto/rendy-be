@@ -9,7 +9,8 @@ from app.models.learning import Learning
 from app.models.user import User
 from app.models.video import Video
 from app.schemas.learning import LearningCreate, LearningUpdate, LearningListResponse, LearningResponse
-from app.services.video_upload import save_video_upload, video_upload_dir
+from app.services.video_upload import save_video_upload, video_upload_dir, video_streams_dir
+from app.services.ffmpeg_streams import ensure_hls_dash_for_video
 
 router = APIRouter(prefix="/api/learning", tags=["learning"])
 
@@ -97,20 +98,30 @@ def get_learning_thumbnail(
     return FileResponse(path, media_type="image/png")
 
 
+def _learning_stream_urls(video_id: str) -> dict:
+    """Return url, hls_url, dash_url when available (auth_required True)."""
+    base = video_streams_dir() / video_id
+    out = {"url": f"/api/videos/stream/{video_id}", "auth_required": True}
+    if (base / "hls" / "playlist.m3u8").is_file():
+        out["hls_url"] = f"/api/videos/stream/{video_id}/hls/playlist.m3u8"
+    if (base / "dash" / "manifest.mpd").is_file():
+        out["dash_url"] = f"/api/videos/stream/{video_id}/dash/manifest.mpd"
+    return out
+
+
 @router.get("/{learning_id}/video-stream-url")
 def get_learning_video_stream_url(
     learning_id: str,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Premium only: returns stream URL. Client must call it with Authorization: Bearer (no shareable link)."""
+    """Premium only: returns stream URL(s). Client must send Authorization: Bearer. HLS/DASH when available."""
     if not user.is_premium:
         raise HTTPException(status_code=403, detail="Premium required")
     item = db.query(Learning).filter(Learning.id == learning_id).first()
     if not item or not item.video_id:
         raise HTTPException(status_code=404, detail="No uploaded video for this learning")
-    url = f"/api/videos/stream/{item.video_id}"
-    return {"url": url, "auth_required": True}
+    return _learning_stream_urls(item.video_id)
 
 
 @router.get("/{learning_id}")
@@ -188,6 +199,13 @@ def create_learning(
         item.video_id = vid.id
     db.commit()
     db.refresh(item)
+    # Convert uploaded video to HLS/DASH for adaptive streaming
+    if item.video_id:
+        vid_row = db.query(Video).filter(Video.id == item.video_id).first()
+        if vid_row:
+            source_path = video_upload_dir() / vid_row.path
+            video_streams_dir().mkdir(parents=True, exist_ok=True)
+            ensure_hls_dash_for_video(vid_row.id, source_path, video_streams_dir())
     return LearningResponse(
         id=item.id,
         title=item.title,
@@ -251,6 +269,13 @@ def update_learning(
         item.video_url = None
     db.commit()
     db.refresh(item)
+    # Convert uploaded video to HLS/DASH for adaptive streaming
+    if item.video_id:
+        vid_row = db.query(Video).filter(Video.id == item.video_id).first()
+        if vid_row:
+            source_path = video_upload_dir() / vid_row.path
+            video_streams_dir().mkdir(parents=True, exist_ok=True)
+            ensure_hls_dash_for_video(vid_row.id, source_path, video_streams_dir())
     return LearningResponse(
         id=item.id,
         title=item.title,
