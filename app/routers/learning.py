@@ -119,14 +119,14 @@ def get_learning(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    """Detail learning. Premium users only; non-premium get 403."""
+    """Detail learning. Non-premium users can only view learnings where is_premium is false."""
     if user.is_blacklisted:
         raise HTTPException(status_code=403, detail=BLACKLIST_MESSAGE)
-    if not user.is_premium:
-        raise HTTPException(status_code=403, detail="Premium required to view learning details")
     item = db.query(Learning).filter(Learning.id == learning_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Learning not found")
+    if not user.is_premium and item.is_premium:
+        raise HTTPException(status_code=403, detail="Premium required to view this learning")
     show_video = user.is_premium
     d = {
         "id": item.id,
@@ -212,7 +212,7 @@ def create_learning(
     )
 
 
-@router.put("/{learning_id}", response_model=LearningResponse)
+@router.patch("/{learning_id}", response_model=LearningResponse)
 def update_learning(
     learning_id: str,
     title: str | None = Form(None),
