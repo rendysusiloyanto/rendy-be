@@ -30,32 +30,23 @@ def list_learnings(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    """List learnings. video_url field is not sent at all for non-premium users."""
+    """List learnings. Returns only id, title, thumbnail, is_published, is_premium, created_at, updated_at."""
     q = db.query(Learning).order_by(Learning.created_at.desc())
     if published_only:
         q = q.filter(Learning.is_published == True)
     items = q.all()
-    show_video = user.is_premium
-    body = []
-    for x in items:
-        d = {
+    return [
+        {
             "id": x.id,
             "title": x.title,
-            "description": x.description,
             "thumbnail": f"/api/learning/{x.id}/thumbnail" if x.thumbnail_path else x.thumbnail,
             "is_published": x.is_published,
             "is_premium": x.is_premium,
             "created_at": x.created_at.isoformat(),
             "updated_at": x.updated_at.isoformat(),
         }
-        if show_video:
-            if x.video_id:
-                d["video_id"] = x.video_id
-                d["video_stream_url"] = f"/api/learning/{x.id}/video-stream-url"
-            else:
-                d["video_url"] = x.video_url
-        body.append(d)
-    return JSONResponse(content=body)
+        for x in items
+    ]
 
 
 @router.get("/admin", response_model=list[LearningResponse])
@@ -128,9 +119,11 @@ def get_learning(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    """Detail learning. video_url/video_stream_url only for premium."""
+    """Detail learning. Premium users only; non-premium get 403."""
     if user.is_blacklisted:
         raise HTTPException(status_code=403, detail=BLACKLIST_MESSAGE)
+    if not user.is_premium:
+        raise HTTPException(status_code=403, detail="Premium required to view learning details")
     item = db.query(Learning).filter(Learning.id == learning_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Learning not found")
