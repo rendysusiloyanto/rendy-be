@@ -1,6 +1,6 @@
 import shutil
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy.orm import Session
 from app.auth import get_current_user, get_current_user_admin, BLACKLIST_MESSAGE
@@ -147,6 +147,7 @@ def get_learning(
 
 @router.post("", response_model=LearningResponse)
 def create_learning(
+    background_tasks: BackgroundTasks,
     title: str = Form(...),
     description: str | None = Form(None),
     content: str | None = Form(None),
@@ -162,7 +163,7 @@ def create_learning(
     """
     Create learning. Form: title (required), description, content, is_published, is_premium,
     thumbnail_url (external URL), video_url (external URL).
-    Optional files: thumbnail (image), video (video file). Uploaded video is stream-only (premium).
+    Optional files: thumbnail (image), video (video file). HLS conversion runs in background.
     """
     item = Learning(
         title=title,
@@ -187,13 +188,16 @@ def create_learning(
         item.video_id = vid.id
     db.commit()
     db.refresh(item)
-    # Convert uploaded video to HLS/DASH for adaptive streaming
+    # Run HLS/DASH conversion in background so POST returns quickly
     if item.video_id:
         vid_row = db.query(Video).filter(Video.id == item.video_id).first()
         if vid_row:
             source_path = video_upload_dir() / vid_row.path
-            video_streams_dir().mkdir(parents=True, exist_ok=True)
-            ensure_hls_dash_for_video(vid_row.id, source_path, video_streams_dir())
+            streams_dir = video_streams_dir()
+            streams_dir.mkdir(parents=True, exist_ok=True)
+            background_tasks.add_task(
+                ensure_hls_dash_for_video, vid_row.id, source_path, streams_dir
+            )
     return LearningResponse(
         id=item.id,
         title=item.title,
@@ -212,6 +216,7 @@ def create_learning(
 @router.patch("/{learning_id}", response_model=LearningResponse)
 def update_learning(
     learning_id: str,
+    background_tasks: BackgroundTasks,
     title: str | None = Form(None),
     description: str | None = Form(None),
     content: str | None = Form(None),
@@ -224,7 +229,7 @@ def update_learning(
     db: Session = Depends(get_db),
     _user=Depends(get_current_user_admin),
 ):
-    """Update learning. Form fields optional. Optional files: thumbnail, video (replaces uploaded video)."""
+    """Update learning. Form fields optional. Optional files: thumbnail, video (replaces uploaded video). HLS conversion runs in background."""
     item = db.query(Learning).filter(Learning.id == learning_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Learning not found")
@@ -257,13 +262,16 @@ def update_learning(
         item.video_url = None
     db.commit()
     db.refresh(item)
-    # Convert uploaded video to HLS/DASH for adaptive streaming
+    # Run HLS/DASH conversion in background so PATCH returns quickly
     if item.video_id:
         vid_row = db.query(Video).filter(Video.id == item.video_id).first()
         if vid_row:
             source_path = video_upload_dir() / vid_row.path
-            video_streams_dir().mkdir(parents=True, exist_ok=True)
-            ensure_hls_dash_for_video(vid_row.id, source_path, video_streams_dir())
+            streams_dir = video_streams_dir()
+            streams_dir.mkdir(parents=True, exist_ok=True)
+            background_tasks.add_task(
+                ensure_hls_dash_for_video, vid_row.id, source_path, streams_dir
+            )
     return LearningResponse(
         id=item.id,
         title=item.title,

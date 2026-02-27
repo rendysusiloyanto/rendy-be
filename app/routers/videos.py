@@ -6,7 +6,7 @@ https://dev.to/ethand91/flask-video-streaming-app-tutorial-1dm3
 """
 import re
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, Request, status, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status, UploadFile, File
 from fastapi.responses import Response, StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
 from app.auth import get_current_user, get_current_user_admin
@@ -143,30 +143,29 @@ def list_videos(
 
 @router.post("")
 def upload_video(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     _admin: User = Depends(get_current_user_admin),
     db: Session = Depends(get_db),
 ):
     """
-    Admin: upload a video file. Converts to HLS and DASH via FFmpeg (sync).
-    Returns id and stream URLs. Premium users get stream with Bearer token.
+    Admin: upload a video file. HLS conversion runs in background; response returns immediately.
     """
     video = save_video_upload(file, db)
     db.commit()
     db.refresh(video)
 
     source_path = _upload_dir() / video.path
-    _streams_dir().mkdir(parents=True, exist_ok=True)
-    hls_ok, dash_ok = ensure_hls_dash_for_video(video.id, source_path, _streams_dir())
+    streams_dir = _streams_dir()
+    streams_dir.mkdir(parents=True, exist_ok=True)
+    background_tasks.add_task(ensure_hls_dash_for_video, video.id, source_path, streams_dir)
 
-    payload = {
+    return {
         "id": video.id,
-        "message": "Stream with Authorization: Bearer <token> (premium only).",
-        "hls_ready": hls_ok,
+        "message": "HLS conversion running in background. Use hls_url with Bearer token when ready.",
+        "hls_ready": False,
+        "hls_url": f"/api/videos/stream/{video.id}/hls/playlist.m3u8",
     }
-    if hls_ok:
-        payload["hls_url"] = f"/api/videos/stream/{video.id}/hls/playlist.m3u8"
-    return payload
 
 
 # ---------- Premium: get stream URL (no token; client must send Bearer) ----------
