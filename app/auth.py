@@ -6,7 +6,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.user import TokenPayload
 
 settings = get_settings()
@@ -134,8 +134,8 @@ def get_user_from_token(token: str, db: Session) -> User | None:
 def get_current_user_admin(
     user: User = Depends(get_current_user),
 ) -> User:
-    """User must be logged in and have ADMIN role."""
-    if user.role != "ADMIN":
+    """User must be logged in and have ADMIN role. Use this dependency for all admin-only endpoints."""
+    if user.role != UserRole.ADMIN.value:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admin can access.",

@@ -95,7 +95,7 @@ def get_all_users(
     _admin: User = Depends(get_current_user_admin),
     db: Session = Depends(get_db),
 ):
-    """Get semua user (hanya admin)."""
+    """List all users (admin only)."""
     users = db.query(User).order_by(User.created_at.desc()).all()
     return [
         UserResponse(
@@ -120,7 +120,7 @@ def get_user(
     _admin: User = Depends(get_current_user_admin),
     db: Session = Depends(get_db),
 ):
-    """Get satu user by id (hanya admin)."""
+    """Get one user by id (admin only)."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -145,7 +145,7 @@ def update_user(
     _admin: User = Depends(get_current_user_admin),
     db: Session = Depends(get_db),
 ):
-    """Edit user (hanya admin)."""
+    """Update user (admin only)."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")

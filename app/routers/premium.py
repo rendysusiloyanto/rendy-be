@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user, get_current_user_admin
 from app.config import get_settings
 from app.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.premium_request import PremiumRequest, PremiumRequestStatus
 from pydantic import BaseModel
 
@@ -205,7 +205,7 @@ def get_premium_request_image(
     req = db.query(PremiumRequest).filter(PremiumRequest.id == request_id).first()
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
-    if user.role != "ADMIN" and req.user_id != user.id:
+    if user.role != UserRole.ADMIN.value and req.user_id != user.id:
         raise HTTPException(status_code=403, detail="Cannot access another user's request")
     if not req.image_path:
         raise HTTPException(status_code=404, detail="Image not uploaded yet")
