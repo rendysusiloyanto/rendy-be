@@ -1,16 +1,14 @@
 """
 Video upload (admin) and streaming (premium only).
-Stream URL uses a short-lived token so <video src> can load without custom headers.
+Stream requires Bearer token + premium user so links are not shareable.
 Range requests supported for seeking. Content-Disposition: inline to discourage download.
 """
 import re
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request, status, UploadFile, File
 from fastapi.responses import Response, StreamingResponse
-from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from app.auth import get_current_user, get_current_user_admin
-from app.config import get_settings
 from app.database import get_db
 from app.models.user import User
 from app.models.video import Video
@@ -25,23 +23,6 @@ def _upload_dir() -> Path:
 
 def _ensure_upload_dir():
     _upload_dir().mkdir(parents=True, exist_ok=True)
-
-
-def _create_stream_token(video_id: str) -> str:
-    from app.services.video_upload import create_video_stream_token
-    return create_video_stream_token(video_id)
-
-
-def _decode_stream_token(token: str) -> str | None:
-    """Return video_id if token valid, else None."""
-    settings = get_settings()
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        if payload.get("type") != "video_stream":
-            return None
-        return payload.get("video_id")
-    except JWTError:
-        return None
 
 
 def _stream_file_range(path: Path, request: Request, content_type: str):
@@ -135,11 +116,11 @@ def upload_video(
     return {
         "id": video.id,
         "url": f"/api/videos/stream/{video.id}",
-        "message": "Use GET /api/videos/{id}/stream-url with Bearer token (premium) to get a playable URL with token.",
+        "message": "Stream with GET /api/videos/stream/{id} and Authorization: Bearer <token> (premium only).",
     }
 
 
-# ---------- Premium: get stream URL (with token) ----------
+# ---------- Premium: get stream URL (no token; client must send Bearer) ----------
 
 
 @router.get("/{video_id}/stream-url")
@@ -149,8 +130,8 @@ def get_stream_url(
     db: Session = Depends(get_db),
 ):
     """
-    Premium only: get a short-lived URL to stream the video (for use in <video src="...">).
-    Token expires in 1 hour (configurable). Non-premium users get 403.
+    Premium only: returns the stream URL. Client must call GET /api/videos/stream/{id}
+    with Authorization: Bearer <token> to play (no shareable link).
     """
     if not user.is_premium:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Premium required to stream videos.")
@@ -160,30 +141,27 @@ def get_stream_url(
     path = _upload_dir() / video.path
     if not path.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video file not found.")
-    token = _create_stream_token(video_id)
-    url = f"/api/videos/stream/{video_id}?token={token}"
-    return {"url": url, "expires_in_minutes": get_settings().video_stream_token_expire_minutes}
+    url = f"/api/videos/stream/{video_id}"
+    return {"url": url, "auth_required": True}
 
 
-# ---------- Stream (token in query; no Bearer) ----------
+# ---------- Stream (Bearer + premium only; no query token) ----------
 
 
 @router.get("/stream/{video_id}")
 def stream_video(
     video_id: str,
     request: Request,
-    token: str | None = None,
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Stream video by token (from stream-url). No Bearer needed; token is in query.
+    Stream video. Requires Authorization: Bearer <jwt> and premium user.
+    No shareable link; only the logged-in premium user can access.
     Supports Range requests for seeking. Content-Disposition: inline (play, not download).
     """
-    if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing stream token. Use GET /api/videos/{id}/stream-url with Bearer (premium).")
-    decoded_id = _decode_stream_token(token)
-    if not decoded_id or decoded_id != video_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired stream token.")
+    if not user.is_premium:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Premium required to stream videos.")
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")

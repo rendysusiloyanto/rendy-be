@@ -1,23 +1,13 @@
-"""Shared helpers for video upload and stream token (used by videos router and learning)."""
+"""Shared helpers for video upload (used by videos router and learning). Streaming requires Bearer + premium."""
 import uuid
 from pathlib import Path
-from datetime import datetime, timedelta
 from fastapi import UploadFile, HTTPException, status
-from jose import jwt
 from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models.video import Video
 
 VIDEO_CONTENT_TYPES = {"video/mp4", "video/webm", "video/ogg", "video/quicktime"}
 CHUNK_SIZE = 1024 * 1024  # 1 MB
-
-
-def create_video_stream_token(video_id: str) -> str:
-    """Short-lived JWT for video stream URL (no Bearer needed in <video src>)."""
-    settings = get_settings()
-    expire = datetime.utcnow() + timedelta(minutes=settings.video_stream_token_expire_minutes)
-    payload = {"video_id": video_id, "exp": expire, "type": "video_stream"}
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
 def video_upload_dir() -> Path:

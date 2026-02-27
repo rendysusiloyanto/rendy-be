@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy.orm import Session
 from app.auth import get_current_user, get_current_user_admin, BLACKLIST_MESSAGE
-from app.config import get_settings
 from app.database import get_db
 from app.models.learning import Learning
 from app.models.user import User
@@ -104,16 +103,14 @@ def get_learning_video_stream_url(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Premium only: get short-lived stream URL for this learning's video (when video was uploaded)."""
+    """Premium only: returns stream URL. Client must call it with Authorization: Bearer (no shareable link)."""
     if not user.is_premium:
         raise HTTPException(status_code=403, detail="Premium required")
     item = db.query(Learning).filter(Learning.id == learning_id).first()
     if not item or not item.video_id:
         raise HTTPException(status_code=404, detail="No uploaded video for this learning")
-    from app.services.video_upload import create_video_stream_token
-    token = create_video_stream_token(item.video_id)
-    url = f"/api/videos/stream/{item.video_id}?token={token}"
-    return {"url": url, "expires_in_minutes": get_settings().video_stream_token_expire_minutes}
+    url = f"/api/videos/stream/{item.video_id}"
+    return {"url": url, "auth_required": True}
 
 
 @router.get("/{learning_id}")
