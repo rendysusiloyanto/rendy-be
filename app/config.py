@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     # Video stream token expiry (minutes)
     video_stream_token_expire_minutes: int = 60
 
+    # Vertex AI (Gemini) for jns23lab AI features
+    vertex_project_id: str = ""
+    vertex_location: str = "us-central1"
+    vertex_credentials_path: str = ""  # path to service account JSON; empty = use ADC
+    gemini_model: str = "gemini-2.0-flash-exp"  # or gemini-2.0-flash-lite
+
     class Config:
         env_file = ".env"
 
