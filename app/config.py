@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     chat_cache_ttl_seconds: int = 86400
     chat_history_max_messages: int = 10
 
+    # AI stream: word-group size (send every N words) and delay between sends (ms)
+    stream_word_group_size: int = 5
+    stream_delay_ms: int = 60
+
     class Config:
         env_file = ".env"
 

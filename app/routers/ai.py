@@ -9,7 +9,6 @@ import hashlib
 import json
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
-from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, get_current_user_premium, require_not_blacklisted
@@ -23,7 +22,9 @@ from app.services.ai_rate_limiter import (
     check_chat_limit,
     log_usage,
     CHAT_LIMIT_PREMIUM,
+    count_chat_today,
 )
+from app.services.ai_stream_service import stream_chat_response
 from app.services.chat_service import ChatService
 from app.repositories.chat_repository import ChatRepository
 
@@ -168,11 +169,6 @@ async def ai_chat(
     )
 
 
-def _sse_message(data: dict) -> str:
-    """Format a dict as one SSE event (data: json line + newline)."""
-    return f"data: {json.dumps(data)}\n\n"
-
-
 @router.post("/chat/stream")
 async def ai_chat_stream(
     body: AiChatRequest,
@@ -182,7 +178,8 @@ async def ai_chat_stream(
 ):
     """
     AI Assistant chat with streaming response (Server-Sent Events).
-    Premium only. Counts toward 50/day. History via Cache-Aside (DB + Redis).
+    Word-grouped stream with small delay for natural feel. Premium only. 50/day.
+    History via Cache-Aside (DB + Redis).
     """
     allowed, err = check_chat_limit(db, user.id)
     if not allowed:
@@ -190,33 +187,17 @@ async def ai_chat_stream(
 
     history = await chat_service.get_history(db, user.id)
 
-    async def event_stream():
-        full_reply: list[str] = []
+    async def on_stream_done(full_reply_text: str) -> int:
+        """Save turn, log usage, return remaining_today. Failures don't break the stream."""
         try:
-            for delta in generate_chat_stream(history, body.message):
-                full_reply.append(delta)
-                yield _sse_message({"delta": delta})
+            await chat_service.save_turn(db, user.id, body.message, full_reply_text)
+            log_usage(db, user.id, "chat")
         except Exception as e:
-            logger.exception("AI chat stream failed")
-            yield _sse_message({"error": "AI service temporarily unavailable."})
-            return
-        reply_text = "".join(full_reply)
-        await chat_service.save_turn(db, user.id, body.message, reply_text)
-        log_usage(db, user.id, "chat")
-        from app.services.ai_rate_limiter import count_chat_today
+            logger.warning("save_turn/log_usage failed (stream already sent): %s", e)
         used = count_chat_today(db, user.id)
-        remaining = max(0, CHAT_LIMIT_PREMIUM - used)
-        yield _sse_message({"done": True, "remaining_today": remaining})
+        return max(0, CHAT_LIMIT_PREMIUM - used)
 
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return await stream_chat_response(history, body.message, on_stream_done)
 
 
 @router.post("/chat-with-image", response_model=AiChatResponse)
