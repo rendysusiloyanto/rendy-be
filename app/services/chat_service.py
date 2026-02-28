@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.repositories.chat_repository import ChatRepository
 from app.services.redis_chat_cache import RedisChatCache
-from app.utils.markdown import normalize_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +74,8 @@ class ChatService:
     ) -> None:
         """
         Save the assistant message (e.g. after streaming). Uses existing conversation.
-        Normalizes Markdown (e.g. inline bullets -> proper list) before saving. DB first, then Redis, then trim.
+        Raw stream result is stored as-is (no editing). DB first, then Redis, then trim.
         """
-        content = normalize_markdown(content)
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(
             None,
@@ -106,9 +104,8 @@ class ChatService:
     ) -> None:
         """
         Save user + assistant in one go (non-streaming / chat-with-image).
-        Normalizes assistant Markdown before saving. Uses conversation; DB first, then Redis; trim to last N.
+        Raw assistant output stored as-is. Uses conversation; DB first, then Redis; trim to last N.
         """
-        assistant_content = normalize_markdown(assistant_content)
         loop = asyncio.get_event_loop()
 
         def _do():
