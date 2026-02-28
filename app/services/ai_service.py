@@ -167,10 +167,19 @@ def generate_chat(messages: list[dict], new_message: str) -> tuple[str, int, int
     if not candidate.content or not candidate.content.parts:
         raise ValueError("No text in model response")
     text = getattr(response, "text", None) or candidate.content.parts[0].text
-    usage = getattr(response, "usage_metadata", None) or {}
-    input_tokens = int(usage.get("prompt_token_count") or 0)
-    output_tokens = int(usage.get("candidates_token_count") or 0)
+    usage = getattr(response, "usage_metadata", None)
+    input_tokens = _token_count(usage, "prompt_token_count")
+    output_tokens = _token_count(usage, "candidates_token_count")
     return text, input_tokens, output_tokens
+
+
+def _token_count(usage: Any, key: str) -> int:
+    """Get token count from usage_metadata (dict or Pydantic model)."""
+    if usage is None:
+        return 0
+    if isinstance(usage, dict):
+        return int(usage.get(key) or 0)
+    return int(getattr(usage, key, 0) or 0)
 
 
 def generate_chat_with_image(
@@ -215,7 +224,7 @@ def generate_chat_with_image(
     if not candidate.content or not candidate.content.parts:
         raise ValueError("No text in model response")
     text = getattr(response, "text", None) or candidate.content.parts[0].text
-    usage = getattr(response, "usage_metadata", None) or {}
-    input_tokens = int(usage.get("prompt_token_count") or 0)
-    output_tokens = int(usage.get("candidates_token_count") or 0)
+    usage = getattr(response, "usage_metadata", None)
+    input_tokens = _token_count(usage, "prompt_token_count")
+    output_tokens = _token_count(usage, "candidates_token_count")
     return text, input_tokens, output_tokens
