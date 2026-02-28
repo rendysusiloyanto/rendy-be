@@ -5,7 +5,7 @@ Uses google-genai client with Vertex AI.
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from app.config import get_settings
 from app.services.ai_security import filter_secrets_from_text, filter_secrets_from_dict
@@ -171,6 +171,52 @@ def generate_chat(messages: list[dict], new_message: str) -> tuple[str, int, int
     input_tokens = _token_count(usage, "prompt_token_count")
     output_tokens = _token_count(usage, "candidates_token_count")
     return text, input_tokens, output_tokens
+
+
+def generate_chat_stream(messages: list[dict], new_message: str) -> Iterator[str]:
+    """
+    Stream chat response from Gemini. Yields text deltas as they arrive.
+    Caller should collect full text for saving history and usage (streaming may not provide usage_metadata).
+    """
+    client = _get_client()
+    settings = get_settings()
+    from google.genai import types
+    from google.genai.types import GenerateContentConfig
+
+    contents = []
+    for m in messages:
+        role = m.get("role", "user")
+        content = (m.get("content") or "").strip()
+        if not content:
+            continue
+        if role == "user":
+            contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
+        else:
+            contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content)]))
+    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=new_message)]))
+
+    stream = client.models.generate_content_stream(
+        model=settings.gemini_model,
+        contents=contents,
+        config=GenerateContentConfig(
+            system_instruction=ASSISTANT_SYSTEM_PROMPT,
+            temperature=0.7,
+            max_output_tokens=2048,
+        ),
+    )
+    for chunk in stream:
+        if not chunk:
+            continue
+        text = getattr(chunk, "text", None)
+        if text:
+            yield text
+            continue
+        if chunk.candidates:
+            c = chunk.candidates[0]
+            if c.content and c.content.parts:
+                text = getattr(c.content.parts[0], "text", None)
+                if text:
+                    yield text
 
 
 def _token_count(usage: Any, key: str) -> int:

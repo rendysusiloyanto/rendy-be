@@ -2,12 +2,14 @@
 AI endpoints for jns23lab:
 - POST /ai/analyze — failure analysis (all users, rate limited; cached)
 - POST /ai/chat — assistant chat (premium only; 50/day)
+- POST /ai/chat/stream — assistant chat streaming (SSE)
 - POST /ai/chat-with-image — chat with image (premium only; counts toward 50/day)
 """
 import hashlib
 import json
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -18,7 +20,7 @@ from app.models.ai_usage_log import AiUsageLog
 from app.models.ai_analyze_cache import AiAnalyzeCache
 from app.models.ai_chat_message import AiChatMessage
 from app.schemas.ai import AiAnalyzeRequest, AiAnalyzeResponse, AiChatRequest, AiChatResponse
-from app.services.ai_service import generate_analyze, generate_chat, generate_chat_with_image
+from app.services.ai_service import generate_analyze, generate_chat, generate_chat_stream, generate_chat_with_image
 from app.services.ai_rate_limiter import (
     check_analyze_limit,
     check_chat_limit,
@@ -166,6 +168,56 @@ def ai_chat(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         remaining_today=remaining,
+    )
+
+
+def _sse_message(data: dict) -> str:
+    """Format a dict as one SSE event (data: json line + newline)."""
+    return f"data: {json.dumps(data)}\n\n"
+
+
+@router.post("/chat/stream")
+def ai_chat_stream(
+    body: AiChatRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user_premium),
+):
+    """
+    AI Assistant chat with streaming response (Server-Sent Events).
+    Premium only. Counts toward 50/day. Events: data: {"delta": "..."} then data: {"done": true, "remaining_today": N}.
+    """
+    allowed, err = check_chat_limit(db, user.id)
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=err)
+
+    history = _get_chat_history(db, user.id)
+
+    def event_stream():
+        full_reply: list[str] = []
+        try:
+            for delta in generate_chat_stream(history, body.message):
+                full_reply.append(delta)
+                yield _sse_message({"delta": delta})
+        except Exception as e:
+            logger.exception("AI chat stream failed")
+            yield _sse_message({"error": "AI service temporarily unavailable."})
+            return
+        reply_text = "".join(full_reply)
+        _save_chat_turn(db, user.id, body.message, reply_text, 0, 0)
+        log_usage(db, user.id, "chat")
+        from app.services.ai_rate_limiter import count_chat_today
+        used = count_chat_today(db, user.id)
+        remaining = max(0, CHAT_LIMIT_PREMIUM - used)
+        yield _sse_message({"done": True, "remaining_today": remaining})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
