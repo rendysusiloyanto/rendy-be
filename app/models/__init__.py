@@ -10,9 +10,10 @@ from app.models.video import Video
 from app.models.ai_usage_log import AiUsageLog
 from app.models.ai_analyze_cache import AiAnalyzeCache
 from app.models.ai_chat_message import AiChatMessage
+from app.models.ai_conversation import AiConversation
 
 __all__ = [
     "User", "UserRole", "ProxmoxNode", "UKKTestResult", "Learning", "Announcement",
     "AccessRequest", "AccessRequestStatus", "SupportSetting", "PremiumRequest", "PremiumRequestStatus",
-    "Video", "AiUsageLog", "AiAnalyzeCache", "AiChatMessage",
+    "Video", "AiUsageLog", "AiAnalyzeCache", "AiChatMessage", "AiConversation",
 ]

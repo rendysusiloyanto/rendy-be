@@ -1,12 +1,11 @@
 """
-Chat orchestration: Cache-Aside over DB (source of truth) + Redis (cache).
+Chat orchestration: Conversation + Message persistence, Cache-Aside over DB + Redis.
+- Save user message before streaming; save assistant message after streaming.
 - Load: try Redis; on miss load from DB, warm Redis, return.
-- Save: write to DB first, then best-effort Redis (RPUSH + LTRIM + EXPIRE).
-If Redis is down, all operations use DB only; no crash, no mass migration.
+- Ownership: all reads/writes are scoped to the user's conversation (conversation.user_id).
 """
 import asyncio
 import logging
-from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -32,23 +31,66 @@ class ChatService:
     async def get_history(self, db: Session, user_id: str) -> list[dict]:
         """
         Cache-Aside: try Redis first; on miss load from DB, warm Redis, return.
-        If Redis is down, returns DB result only.
+        Returns last N messages in user's conversation, oldest-first (for Gemini context).
         """
-        # 1) Try Redis
         if self._cache:
             messages = await self._cache.get_last_messages(user_id)
             if messages is not None:
                 return messages
-        # 2) Cache miss or Redis down: load from DB
         loop = asyncio.get_event_loop()
         messages = await loop.run_in_executor(
             None,
             lambda: self._repo.get_last_messages(db, user_id, self._limit),
         )
-        # 3) Warm Redis (best-effort; ignore failure)
         if self._cache and messages:
             await self._cache.warm(user_id, messages)
         return messages
+
+    async def save_user_message(self, db: Session, user_id: str, content: str) -> None:
+        """
+        Save the user message (e.g. before streaming). Creates conversation if needed.
+        DB first, then best-effort Redis append.
+        """
+        loop = asyncio.get_event_loop()
+
+        def _do():
+            conv = self._repo.get_or_create_conversation(db, user_id)
+            self._repo.save_message(
+                db, user_id, "user", content, conversation_id=conv.id
+            )
+            return conv.id
+
+        await loop.run_in_executor(None, _do)
+        if self._cache:
+            await self._cache.append_message(user_id, {"role": "user", "content": content})
+
+    async def save_assistant_message(
+        self,
+        db: Session,
+        user_id: str,
+        content: str,
+        *,
+        output_tokens: int | None = None,
+    ) -> None:
+        """
+        Save the assistant message (e.g. after streaming). Uses existing conversation.
+        DB first, then Redis append, then trim to last N.
+        """
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None,
+            lambda: self._repo.save_message(
+                db,
+                user_id,
+                "assistant",
+                content,
+                conversation_id=self._repo.get_or_create_conversation(db, user_id).id,
+                output_tokens=output_tokens,
+            ),
+        )
+        if self._cache:
+            await self._cache.append_message(user_id, {"role": "assistant", "content": content})
+        await loop.run_in_executor(None, lambda: self._repo.trim_to_last_n(db, user_id, self._limit))
 
     async def save_turn(
         self,
@@ -61,25 +103,37 @@ class ChatService:
         output_tokens: int | None = None,
     ) -> None:
         """
-        Save user + assistant message. DB first (source of truth), then Redis.
-        Redis failures are logged only; correctness does not depend on Redis.
+        Save user + assistant in one go (non-streaming / chat-with-image).
+        Uses conversation; DB first, then Redis; trim to last N.
         """
         loop = asyncio.get_event_loop()
-        # 1) Save to DB first
-        await loop.run_in_executor(
-            None,
-            lambda: self._repo.save_message(db, user_id, "user", user_content, input_tokens=input_tokens),
-        )
+
+        def _do():
+            conv = self._repo.get_or_create_conversation(db, user_id)
+            self._repo.save_message(
+                db, user_id, "user", user_content,
+                conversation_id=conv.id,
+                input_tokens=input_tokens,
+            )
+            self._repo.save_message(
+                db, user_id, "assistant", assistant_content,
+                conversation_id=conv.id,
+                output_tokens=output_tokens,
+            )
+            self._repo.trim_to_last_n(db, user_id, self._limit)
+
+        await loop.run_in_executor(None, _do)
         if self._cache:
             await self._cache.append_message(user_id, {"role": "user", "content": user_content})
-
-        await loop.run_in_executor(
-            None,
-            lambda: self._repo.save_message(
-                db, user_id, "assistant", assistant_content, output_tokens=output_tokens
-            ),
-        )
-        if self._cache:
             await self._cache.append_message(user_id, {"role": "assistant", "content": assistant_content})
-        # Keep DB to last N only (same as Redis window)
-        await loop.run_in_executor(None, lambda: self._repo.trim_to_last_n(db, user_id, self._limit))
+
+    async def get_history_for_user(self, db: Session, user_id: str, limit: int = 100) -> list[dict]:
+        """
+        Get full ordered history for GET endpoint. Ownership: only messages in
+        the conversation owned by user_id. Ordered by created_at asc.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self._repo.get_messages_ordered_for_user(db, user_id, limit),
+        )

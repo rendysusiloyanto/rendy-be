@@ -24,3 +24,16 @@ class AiChatResponse(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     remaining_today: int = 0
+
+
+# ---- Chat history (GET) ----
+
+class AiChatMessageOut(BaseModel):
+    id: str
+    role: str  # "user" | "assistant"
+    content: str
+    created_at: str | None = None
+
+
+class AiChatHistoryResponse(BaseModel):
+    messages: list[AiChatMessageOut]

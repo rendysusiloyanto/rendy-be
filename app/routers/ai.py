@@ -2,6 +2,7 @@
 AI endpoints for jns23lab:
 - POST /ai/analyze — failure analysis (all users, rate limited; cached)
 - POST /ai/chat — assistant chat (premium only; 50/day)
+- GET /ai/chat/history — chat history for current user (premium; ownership validated)
 - POST /ai/chat/stream — assistant chat streaming (SSE)
 - POST /ai/chat-with-image — chat with image (premium only; counts toward 50/day)
 """
@@ -15,7 +16,14 @@ from app.auth import get_current_user, get_current_user_premium, require_not_bla
 from app.database import get_db
 from app.models.user import User
 from app.models.ai_analyze_cache import AiAnalyzeCache
-from app.schemas.ai import AiAnalyzeRequest, AiAnalyzeResponse, AiChatRequest, AiChatResponse
+from app.schemas.ai import (
+    AiAnalyzeRequest,
+    AiAnalyzeResponse,
+    AiChatRequest,
+    AiChatResponse,
+    AiChatHistoryResponse,
+    AiChatMessageOut,
+)
 from app.services.ai_service import generate_analyze, generate_chat, generate_chat_stream, generate_chat_with_image
 from app.services.ai_rate_limiter import (
     check_analyze_limit,
@@ -169,6 +177,22 @@ async def ai_chat(
     )
 
 
+@router.get("/chat/history", response_model=AiChatHistoryResponse)
+async def ai_chat_history(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user_premium),
+    chat_service: ChatService = Depends(_get_chat_service_dep),
+):
+    """
+    Get chat history for the current user. Premium only.
+    Ownership: only messages in the user's conversation are returned; ordered by created_at asc.
+    """
+    messages = await chat_service.get_history_for_user(db, user.id, limit=100)
+    return AiChatHistoryResponse(
+        messages=[AiChatMessageOut(**m) for m in messages],
+    )
+
+
 @router.post("/chat/stream")
 async def ai_chat_stream(
     body: AiChatRequest,
@@ -187,13 +211,19 @@ async def ai_chat_stream(
 
     history = await chat_service.get_history(db, user.id)
 
+    # Persist user message before streaming so history is stored even if stream fails later
+    try:
+        await chat_service.save_user_message(db, user.id, body.message)
+    except Exception as e:
+        logger.warning("save_user_message failed before stream: %s", e)
+
     async def on_stream_done(full_reply_text: str) -> int:
-        """Save turn, log usage, return remaining_today. Failures don't break the stream."""
+        """Save assistant message after stream, log usage, return remaining_today. Failures don't break the stream."""
         try:
-            await chat_service.save_turn(db, user.id, body.message, full_reply_text)
+            await chat_service.save_assistant_message(db, user.id, full_reply_text)
             log_usage(db, user.id, "chat")
         except Exception as e:
-            logger.warning("save_turn/log_usage failed (stream already sent): %s", e)
+            logger.warning("save_assistant_message/log_usage failed (stream already sent): %s", e)
         used = count_chat_today(db, user.id)
         return max(0, CHAT_LIMIT_PREMIUM - used)
 
