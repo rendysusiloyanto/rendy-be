@@ -146,10 +146,10 @@ def generate_chat(messages: list[dict], new_message: str) -> tuple[str, int, int
         if not content:
             continue
         if role == "user":
-            contents.append(types.Content(role="user", parts=[types.Part.from_text(content)]))
+            contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
         else:
-            contents.append(types.Content(role="model", parts=[types.Part.from_text(content)]))
-    contents.append(types.Content(role="user", parts=[types.Part.from_text(new_message)]))
+            contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content)]))
+    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=new_message)]))
 
     from google.genai.types import GenerateContentConfig
     response = client.models.generate_content(
@@ -188,14 +188,14 @@ def generate_chat_with_image(
         if not content:
             continue
         if role == "user":
-            contents.append(types.Content(role="user", parts=[types.Part.from_text(content)]))
+            contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
         else:
-            contents.append(types.Content(role="model", parts=[types.Part.from_text(content)]))
+            contents.append(types.Content(role="model", parts=[types.Part.from_text(text=content)]))
 
     # Last turn: image + text
     parts = [
         types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-        types.Part.from_text(new_message or "What do you see in this image? Please explain."),
+        types.Part.from_text(text=new_message or "What do you see in this image? Please explain."),
     ]
     contents.append(types.Content(role="user", parts=parts))
 
