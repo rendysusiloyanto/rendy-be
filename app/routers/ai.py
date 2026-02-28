@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, get_current_user_premium, require_not_blacklisted
-from app.database import get_db
+from app.database import get_db, SessionLocal
 from app.models.user import User
 from app.models.ai_analyze_cache import AiAnalyzeCache
 from app.schemas.ai import (
@@ -217,15 +217,23 @@ async def ai_chat_stream(
     except Exception as e:
         logger.warning("save_user_message failed before stream: %s", e)
 
+    # Use fresh session in callback: by the time stream ends, request-scoped db/user may be closed/detached
+    user_id = user.id
+    message_text = body.message
+
     async def on_stream_done(full_reply_text: str) -> int:
-        """Save assistant message after stream, log usage, return remaining_today. Failures don't break the stream."""
+        """Save assistant message after stream, log usage, return remaining_today. Uses fresh DB session."""
+        db_fresh = SessionLocal()
         try:
-            await chat_service.save_assistant_message(db, user.id, full_reply_text)
-            log_usage(db, user.id, "chat")
+            await chat_service.save_assistant_message(db_fresh, user_id, full_reply_text)
+            log_usage(db_fresh, user_id, "chat")
+            used = count_chat_today(db_fresh, user_id)
+            return max(0, CHAT_LIMIT_PREMIUM - used)
         except Exception as e:
             logger.warning("save_assistant_message/log_usage failed (stream already sent): %s", e)
-        used = count_chat_today(db, user.id)
-        return max(0, CHAT_LIMIT_PREMIUM - used)
+            return 0
+        finally:
+            db_fresh.close()
 
     return await stream_chat_response(history, body.message, on_stream_done)
 
