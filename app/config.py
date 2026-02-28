@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     vertex_credentials_path: str = ""  # path to service account JSON; empty = use ADC
     gemini_model: str = "gemini-2.0-flash-exp"  # or gemini-2.0-flash-lite
 
+    # Redis (optional cache for AI chat; empty = no Redis, DB only)
+    redis_url: str = ""  # e.g. redis://localhost:6379/0
+
+    # Chat cache TTL in seconds (1 day)
+    chat_cache_ttl_seconds: int = 86400
+    chat_history_max_messages: int = 10
+
     class Config:
         env_file = ".env"
 

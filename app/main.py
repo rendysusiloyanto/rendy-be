@@ -22,6 +22,8 @@ async def lifespan(app: FastAPI):
             await task
         except asyncio.CancelledError:
             pass
+        from app.core.redis import close_redis
+        await close_redis()
 
 
 app = FastAPI(title="Auth API", version="1.0.0", lifespan=lifespan)

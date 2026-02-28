@@ -67,11 +67,18 @@ Defined in `app/services/ai_service.py` → `ASSISTANT_SYSTEM_PROMPT`: jns23lab 
 
 ---
 
-## Database
+## Database (source of truth)
 
 - **ai_usage_logs** – one row per analyze or chat call; `feature` (analyze | chat), `user_id`, `created_at`, optional token counts.
 - **ai_analyze_cache** – cache key (hash of user_id + payload), `response_text`, `user_id`.
-- **ai_chat_messages** – last N messages per user for context; `role` (user | assistant), `content`, optional token fields.
+- **ai_chat_messages** – last N messages per user for context; `role` (user | assistant), `content`, optional token fields. Index: `(user_id, created_at DESC)` for efficient history load.
+
+## Redis (optional cache – Cache-Aside)
+
+- **Key:** `chat:{user_id}` — Redis LIST of JSON strings `{"role","content"}`.
+- **Ops:** RPUSH new message, LTRIM -10 -1, EXPIRE 86400 (1 day).
+- **Flow:** Load: try Redis LRANGE; on miss load from DB, warm Redis, return. Save: write DB first, then Redis (best-effort). If Redis is down, DB only; no crash, no mass migration.
+- **Health:** `GET /api/ai/health` returns `{"redis": "ok"}` or `{"redis": "unavailable"}`.
 
 ---
 

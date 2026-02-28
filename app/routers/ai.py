@@ -11,14 +11,11 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
 
 from app.auth import get_current_user, get_current_user_premium, require_not_blacklisted
 from app.database import get_db
 from app.models.user import User
-from app.models.ai_usage_log import AiUsageLog
 from app.models.ai_analyze_cache import AiAnalyzeCache
-from app.models.ai_chat_message import AiChatMessage
 from app.schemas.ai import AiAnalyzeRequest, AiAnalyzeResponse, AiChatRequest, AiChatResponse
 from app.services.ai_service import generate_analyze, generate_chat, generate_chat_stream, generate_chat_with_image
 from app.services.ai_rate_limiter import (
@@ -26,8 +23,9 @@ from app.services.ai_rate_limiter import (
     check_chat_limit,
     log_usage,
     CHAT_LIMIT_PREMIUM,
-    CHAT_HISTORY_MAX_MESSAGES,
 )
+from app.services.chat_service import ChatService
+from app.repositories.chat_repository import ChatRepository
 
 logger = logging.getLogger(__name__)
 
@@ -40,46 +38,39 @@ def _analyze_cache_key(user_id: str, payload: dict) -> str:
     return hashlib.sha256(f"{user_id}:{normalized}".encode()).hexdigest()[:64]
 
 
-def _get_chat_history(db: Session, user_id: str, max_messages: int = CHAT_HISTORY_MAX_MESSAGES) -> list[dict]:
-    rows = (
-        db.query(AiChatMessage)
-        .filter(AiChatMessage.user_id == user_id)
-        .order_by(desc(AiChatMessage.created_at))
-        .limit(max_messages)
-        .all()
-    )
-    # Oldest first for API
-    rows = list(reversed(rows))
-    return [{"role": r.role, "content": r.content} for r in rows]
+# ---------- Dependencies: Redis (optional) + ChatService (Cache-Aside) ----------
 
 
-def _save_chat_turn(db: Session, user_id: str, user_content: str, assistant_content: str, input_tokens: int, output_tokens: int) -> None:
-    """Append user and assistant messages; trim to last N."""
-    for role, content in [("user", user_content), ("assistant", assistant_content)]:
-        msg = AiChatMessage(
-            user_id=user_id,
-            role=role,
-            content=content,
-            input_tokens=str(input_tokens) if role == "user" else None,
-            output_tokens=str(output_tokens) if role == "assistant" else None,
-        )
-        db.add(msg)
-    db.commit()
-    # Keep only last CHAT_HISTORY_MAX_MESSAGES per user (delete older)
-    ids_to_keep = (
-        db.query(AiChatMessage.id)
-        .filter(AiChatMessage.user_id == user_id)
-        .order_by(desc(AiChatMessage.created_at))
-        .limit(CHAT_HISTORY_MAX_MESSAGES)
-        .all()
-    )
-    keep_ids = [r[0] for r in ids_to_keep]
-    if keep_ids:
-        db.query(AiChatMessage).filter(
-            AiChatMessage.user_id == user_id,
-            AiChatMessage.id.notin_(keep_ids),
-        ).delete(synchronize_session=False)
-        db.commit()
+async def _get_redis_chat_cache_dep():
+    """Async dependency: Redis chat cache or None if Redis disabled/down."""
+    from app.core.redis import get_redis_client, build_redis_chat_cache
+    client = await get_redis_client()
+    return build_redis_chat_cache(client) if client else None
+
+
+def _get_chat_service_dep(
+    redis_cache=Depends(_get_redis_chat_cache_dep),
+) -> ChatService:
+    """ChatService with optional Redis cache (Cache-Aside). DB is source of truth."""
+    return ChatService(redis_cache=redis_cache, repository=ChatRepository())
+
+
+# ---------- Health (Redis optional) ----------
+
+
+@router.get("/health")
+async def ai_health():
+    """Health check: Redis status (optional). DB not checked here."""
+    from app.core.redis import get_redis_client
+    client = await get_redis_client()
+    if client is None:
+        return {"redis": "unavailable", "message": "Redis disabled or connection failed"}
+    try:
+        await client.ping()
+        return {"redis": "ok"}
+    except Exception as e:
+        logger.warning("Redis health ping failed: %s", e)
+        return {"redis": "error", "message": str(e)}
 
 
 # ---------- Analyze ----------
@@ -136,17 +127,19 @@ def ai_analyze(
 
 
 @router.post("/chat", response_model=AiChatResponse)
-def ai_chat(
+async def ai_chat(
     body: AiChatRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user_premium),
+    chat_service: ChatService = Depends(_get_chat_service_dep),
 ):
-    """AI Assistant chat. Premium only. Max 50 messages per day."""
+    """AI Assistant chat. Premium only. Max 50 messages per day. History via Cache-Aside (DB + Redis)."""
     allowed, err = check_chat_limit(db, user.id)
     if not allowed:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=err)
 
-    history = _get_chat_history(db, user.id)
+    # 1) Load history (Redis on hit, else DB then warm Redis)
+    history = await chat_service.get_history(db, user.id)
     try:
         reply, input_tokens, output_tokens = generate_chat(history, body.message)
     except Exception as e:
@@ -156,7 +149,11 @@ def ai_chat(
             detail="AI service temporarily unavailable. Please try again later.",
         ) from e
 
-    _save_chat_turn(db, user.id, body.message, reply, input_tokens, output_tokens)
+    # 2) Save to DB first, then Redis (best-effort)
+    await chat_service.save_turn(
+        db, user.id, body.message, reply,
+        input_tokens=input_tokens, output_tokens=output_tokens,
+    )
     log_usage(db, user.id, "chat", input_tokens=input_tokens, output_tokens=output_tokens)
 
     from app.services.ai_rate_limiter import count_chat_today
@@ -177,22 +174,23 @@ def _sse_message(data: dict) -> str:
 
 
 @router.post("/chat/stream")
-def ai_chat_stream(
+async def ai_chat_stream(
     body: AiChatRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user_premium),
+    chat_service: ChatService = Depends(_get_chat_service_dep),
 ):
     """
     AI Assistant chat with streaming response (Server-Sent Events).
-    Premium only. Counts toward 50/day. Events: data: {"delta": "..."} then data: {"done": true, "remaining_today": N}.
+    Premium only. Counts toward 50/day. History via Cache-Aside (DB + Redis).
     """
     allowed, err = check_chat_limit(db, user.id)
     if not allowed:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=err)
 
-    history = _get_chat_history(db, user.id)
+    history = await chat_service.get_history(db, user.id)
 
-    def event_stream():
+    async def event_stream():
         full_reply: list[str] = []
         try:
             for delta in generate_chat_stream(history, body.message):
@@ -203,7 +201,7 @@ def ai_chat_stream(
             yield _sse_message({"error": "AI service temporarily unavailable."})
             return
         reply_text = "".join(full_reply)
-        _save_chat_turn(db, user.id, body.message, reply_text, 0, 0)
+        await chat_service.save_turn(db, user.id, body.message, reply_text)
         log_usage(db, user.id, "chat")
         from app.services.ai_rate_limiter import count_chat_today
         used = count_chat_today(db, user.id)
@@ -222,11 +220,12 @@ def ai_chat_stream(
 
 
 @router.post("/chat-with-image", response_model=AiChatResponse)
-def ai_chat_with_image(
+async def ai_chat_with_image(
     message: str = Form(default="", max_length=8000),
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user_premium),
+    chat_service: ChatService = Depends(_get_chat_service_dep),
 ):
     """AI Assistant with image (screenshot of error, config, terminal). Premium only. Counts toward 50/day."""
     allowed, err = check_chat_limit(db, user.id)
@@ -241,12 +240,12 @@ def ai_chat_with_image(
             detail="File must be an image (png, jpeg, webp, gif).",
         )
 
-    image_bytes = image.file.read()
+    image_bytes = await image.read()
     if len(image_bytes) > 10 * 1024 * 1024:  # 10 MB
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image too large (max 10 MB).")
 
     mime = ct or "image/png"
-    history = _get_chat_history(db, user.id)
+    history = await chat_service.get_history(db, user.id)
     try:
         reply, input_tokens, output_tokens = generate_chat_with_image(history, message or "What do you see? Please explain.", image_bytes, mime)
     except Exception as e:
@@ -257,7 +256,7 @@ def ai_chat_with_image(
         ) from e
 
     user_content = f"[Image uploaded] {message}" if message else "[Image uploaded]"
-    _save_chat_turn(db, user.id, user_content, reply, input_tokens, output_tokens)
+    await chat_service.save_turn(db, user.id, user_content, reply, input_tokens=input_tokens, output_tokens=output_tokens)
     log_usage(db, user.id, "chat", input_tokens=input_tokens, output_tokens=output_tokens)
 
     from app.services.ai_rate_limiter import count_chat_today
