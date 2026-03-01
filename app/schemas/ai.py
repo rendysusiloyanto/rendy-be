@@ -37,3 +37,10 @@ class AiChatMessageOut(BaseModel):
 
 class AiChatHistoryResponse(BaseModel):
     messages: list[AiChatMessageOut]
+
+
+class AiChatDailyLimitResponse(BaseModel):
+    """Daily chat message limit for the current user (based on premium status)."""
+    limit: int = Field(..., description="Max chat messages per day (5 non-premium, 30 premium)")
+    used_today: int = Field(..., description="Messages already used today")
+    remaining_today: int = Field(..., description="Remaining messages today")

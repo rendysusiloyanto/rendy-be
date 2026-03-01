@@ -1,10 +1,11 @@
 """
 AI endpoints for jns23lab:
 - POST /ai/analyze — failure analysis (all users, rate limited; cached)
-- POST /ai/chat — assistant chat (premium only; 50/day)
-- GET /ai/chat/history — chat history for current user (premium; ownership validated)
+- GET /ai/chat/limit — daily chat limit for current user (5 non-premium, 30 premium)
+- POST /ai/chat — assistant chat (non-premium 5/day, premium 30/day)
+- GET /ai/chat/history — chat history for current user
 - POST /ai/chat/stream — assistant chat streaming (SSE)
-- POST /ai/chat-with-image — chat with image (premium only; counts toward 50/day)
+- POST /ai/chat-with-image — chat with image (counts toward daily limit)
 """
 import hashlib
 import json
@@ -23,13 +24,14 @@ from app.schemas.ai import (
     AiChatResponse,
     AiChatHistoryResponse,
     AiChatMessageOut,
+    AiChatDailyLimitResponse,
 )
 from app.services.ai_service import generate_analyze, generate_chat, generate_chat_stream, generate_chat_with_image
 from app.services.ai_rate_limiter import (
     check_analyze_limit,
     check_chat_limit,
+    get_chat_limit,
     log_usage,
-    CHAT_LIMIT_PREMIUM,
     count_chat_today,
 )
 from app.services.ai_stream_service import stream_chat_response
@@ -135,15 +137,31 @@ def ai_analyze(
 # ---------- Chat (Premium only) ----------
 
 
+@router.get("/chat/limit", response_model=AiChatDailyLimitResponse)
+async def ai_chat_daily_limit(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Get daily chat message limit for the current user (5 non-premium, 30 premium)."""
+    used = count_chat_today(db, user.id)
+    limit = get_chat_limit(user.is_premium)
+    remaining = max(0, limit - used)
+    return AiChatDailyLimitResponse(
+        limit=limit,
+        used_today=used,
+        remaining_today=remaining,
+    )
+
+
 @router.post("/chat", response_model=AiChatResponse)
 async def ai_chat(
     body: AiChatRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user_premium),
+    user: User = Depends(get_current_user),
     chat_service: ChatService = Depends(_get_chat_service_dep),
 ):
-    """AI Assistant chat. Premium only. Max 50 messages per day. History via Cache-Aside (DB + Redis)."""
-    allowed, err = check_chat_limit(db, user.id)
+    """AI Assistant chat. Non-premium 5/day, premium 30/day. History via Cache-Aside (DB + Redis)."""
+    allowed, err = check_chat_limit(db, user.id, user.is_premium)
     if not allowed:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=err)
 
@@ -165,9 +183,9 @@ async def ai_chat(
     )
     log_usage(db, user.id, "chat", input_tokens=input_tokens, output_tokens=output_tokens)
 
-    from app.services.ai_rate_limiter import count_chat_today
     used = count_chat_today(db, user.id)
-    remaining = max(0, CHAT_LIMIT_PREMIUM - used)
+    limit = get_chat_limit(user.is_premium)
+    remaining = max(0, limit - used)
 
     return AiChatResponse(
         reply=reply,
@@ -180,11 +198,11 @@ async def ai_chat(
 @router.get("/chat/history", response_model=AiChatHistoryResponse)
 async def ai_chat_history(
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user_premium),
+    user: User = Depends(get_current_user),
     chat_service: ChatService = Depends(_get_chat_service_dep),
 ):
     """
-    Get chat history for the current user. Premium only.
+    Get chat history for the current user.
     Ownership: only messages in the user's conversation are returned; ordered by created_at asc.
     """
     messages = await chat_service.get_history_for_user(db, user.id, limit=100)
@@ -197,15 +215,14 @@ async def ai_chat_history(
 async def ai_chat_stream(
     body: AiChatRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user_premium),
+    user: User = Depends(get_current_user),
     chat_service: ChatService = Depends(_get_chat_service_dep),
 ):
     """
     AI Assistant chat with streaming response (Server-Sent Events).
-    Word-grouped stream with small delay for natural feel. Premium only. 50/day.
-    History via Cache-Aside (DB + Redis).
+    Non-premium 5/day, premium 30/day. History via Cache-Aside (DB + Redis).
     """
-    allowed, err = check_chat_limit(db, user.id)
+    allowed, err = check_chat_limit(db, user.id, user.is_premium)
     if not allowed:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=err)
 
@@ -221,6 +238,8 @@ async def ai_chat_stream(
     user_id = user.id
     message_text = body.message
 
+    is_premium = user.is_premium
+
     async def on_stream_done(full_reply_text: str) -> int:
         """Save assistant message after stream, log usage, return remaining_today. Uses fresh DB session."""
         db_fresh = SessionLocal()
@@ -228,7 +247,7 @@ async def ai_chat_stream(
             await chat_service.save_assistant_message(db_fresh, user_id, full_reply_text)
             log_usage(db_fresh, user_id, "chat")
             used = count_chat_today(db_fresh, user_id)
-            return max(0, CHAT_LIMIT_PREMIUM - used)
+            return max(0, get_chat_limit(is_premium) - used)
         except Exception as e:
             logger.warning("save_assistant_message/log_usage failed (stream already sent): %s", e)
             return 0
@@ -243,11 +262,11 @@ async def ai_chat_with_image(
     message: str = Form(default="", max_length=8000),
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user_premium),
+    user: User = Depends(get_current_user),
     chat_service: ChatService = Depends(_get_chat_service_dep),
 ):
-    """AI Assistant with image (screenshot of error, config, terminal). Premium only. Counts toward 50/day."""
-    allowed, err = check_chat_limit(db, user.id)
+    """AI Assistant with image (screenshot of error, config, terminal). Counts toward daily limit (5/30)."""
+    allowed, err = check_chat_limit(db, user.id, user.is_premium)
     if not allowed:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=err)
 
@@ -278,9 +297,8 @@ async def ai_chat_with_image(
     await chat_service.save_turn(db, user.id, user_content, reply, input_tokens=input_tokens, output_tokens=output_tokens)
     log_usage(db, user.id, "chat", input_tokens=input_tokens, output_tokens=output_tokens)
 
-    from app.services.ai_rate_limiter import count_chat_today
     used = count_chat_today(db, user.id)
-    remaining = max(0, CHAT_LIMIT_PREMIUM - used)
+    remaining = max(0, get_chat_limit(user.is_premium) - used)
 
     return AiChatResponse(
         reply=reply,

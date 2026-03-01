@@ -1,7 +1,7 @@
 """
 Daily rate limits for AI features.
 - Analyze: non-premium 3/day, premium 20/day
-- Chat: premium only, 50 messages/day
+- Chat: non-premium 5/day, premium 30/day
 """
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import func
@@ -12,7 +12,8 @@ from app.models.ai_usage_log import AiUsageLog
 # Limits per user per calendar day (UTC)
 ANALYZE_LIMIT_NON_PREMIUM = 3
 ANALYZE_LIMIT_PREMIUM = 20
-CHAT_LIMIT_PREMIUM = 50
+CHAT_LIMIT_NON_PREMIUM = 5
+CHAT_LIMIT_PREMIUM = 30
 
 # Conversation history length for assistant
 CHAT_HISTORY_MAX_MESSAGES = 10
@@ -52,11 +53,17 @@ def check_analyze_limit(db: Session, user_id: str, is_premium: bool) -> tuple[bo
     return True, ""
 
 
-def check_chat_limit(db: Session, user_id: str) -> tuple[bool, str]:
-    """Premium-only is enforced in router. Here we only check daily count."""
+def get_chat_limit(is_premium: bool) -> int:
+    """Return daily chat message limit (5 non-premium, 30 premium)."""
+    return CHAT_LIMIT_PREMIUM if is_premium else CHAT_LIMIT_NON_PREMIUM
+
+
+def check_chat_limit(db: Session, user_id: str, is_premium: bool) -> tuple[bool, str]:
+    """Returns (allowed, error_message). Uses limit 5 for non-premium, 30 for premium."""
+    limit = get_chat_limit(is_premium)
     count = count_chat_today(db, user_id)
-    if count >= CHAT_LIMIT_PREMIUM:
-        return False, f"Daily limit reached ({CHAT_LIMIT_PREMIUM} chat messages per day). Try again tomorrow."
+    if count >= limit:
+        return False, f"Daily limit reached ({limit} chat messages per day). Try again tomorrow."
     return True, ""
 
 
