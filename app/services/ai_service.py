@@ -143,14 +143,15 @@ You MUST strictly follow Markdown formatting rules so the frontend renders lists
 
 4. Bold: Use **teks** for bold. Inside a list item you can write "* **Judul:** penjelasan" (one bullet with bold inside).
 
-5. Nested list (sub-items): Use 2 spaces before "* " for sub-items. Example:
+5. Nested list (sub-items): Use 2 spaces before "* " or "- " for sub-items so they render as a sublist. Example:
 * **Konsep Dasar DevOps:**
   * CI/CD (Continuous Integration/Continuous Delivery)
   * Infrastructure as Code (IaC)
-  * Containerization (Docker, Kubernetes)
-* **Tools dan Teknologi:**
-  * Version Control (Git)
-  * Cloud Platforms (AWS, Azure, Google Cloud jika relevan)
+* **Manfaat:**
+  * Keamanan data
+  * Kepercayaan pengguna
+
+6. Closing question: Always put the closing question (e.g. "Apakah ada hal lain tentang X yang ingin Anda ketahui?") on a new line: add a blank line before it so it does not stick to the previous sentence. Correct: "...situs web.\n\nApakah ada hal lain..."
 
 Incorrect: "Here's what you need: * A * B"
 Correct:
